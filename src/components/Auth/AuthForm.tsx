@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, UserPlus, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { LogIn, UserPlus, Loader2, AlertCircle, CheckCircle, Info } from 'lucide-react';
 
 const AuthForm: React.FC = () => {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -15,8 +15,10 @@ const AuthForm: React.FC = () => {
   const navigate = useNavigate();
 
   const getErrorMessage = (error: any) => {
+    console.log('Full error object:', error);
+    
     if (error?.message?.includes('Invalid login credentials')) {
-      return 'Invalid email or password. Please check your credentials and try again. If you just signed up, make sure to confirm your email first.';
+      return 'Invalid email or password. Please check your credentials and try again. If you recently signed up, make sure to confirm your email first.';
     }
     if (error?.message?.includes('Email not confirmed')) {
       return 'Please check your email and click the confirmation link before signing in.';
@@ -32,6 +34,9 @@ const AuthForm: React.FC = () => {
     }
     if (error?.message?.includes('Unable to validate email address')) {
       return 'Please enter a valid email address.';
+    }
+    if (error?.message?.includes('invalid_credentials')) {
+      return 'The email or password you entered is incorrect. Please double-check your credentials. If you recently signed up, make sure you\'ve confirmed your email address.';
     }
     return error?.message || 'An unexpected error occurred. Please try again.';
   };
@@ -104,6 +109,15 @@ const AuthForm: React.FC = () => {
             <div className="bg-green-50 border border-green-200 text-green-600 px-3 py-3 rounded-md text-sm flex items-start space-x-2">
               <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <span>{success}</span>
+            </div>
+          )}
+
+          {!isSignUp && !error && !success && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-600 px-3 py-3 rounded-md text-sm flex items-start space-x-2">
+              <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <span>
+                If you recently signed up, make sure to confirm your email address before signing in.
+              </span>
             </div>
           )}
           
@@ -180,7 +194,10 @@ const AuthForm: React.FC = () => {
           {!isSignUp && (
             <div className="text-center">
               <p className="text-xs text-gray-500 mt-4">
-                Having trouble signing in? Make sure you've confirmed your email address if you recently signed up.
+                <strong>Troubleshooting:</strong><br />
+                • Double-check your email and password<br />
+                • If you recently signed up, confirm your email first<br />
+                • Make sure you're using the same email you registered with
               </p>
             </div>
           )}
