@@ -59,7 +59,7 @@ interface FitnessGoal {
 }
 
 const BodyTracker: React.FC = () => {
-  const { showSuccess, showError, showConfirmation } = useNotifications();
+  const { showSuccess, showError } = useNotifications();
   
   const [workouts, setWorkouts] = useState<WorkoutItem[]>([
     { id: '1', name: 'Push-up', repetitions: 15, completed: true, date: '2024-01-15' },
@@ -116,6 +116,19 @@ const BodyTracker: React.FC = () => {
   const [activeTimer, setActiveTimer] = useState<string | null>(null);
   const [timerSeconds, setTimerSeconds] = useState(0);
 
+  // Confirmation states for delete operations
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    show: boolean;
+    type: 'workout' | 'meal' | 'weight' | null;
+    id: string;
+    name: string;
+  }>({
+    show: false,
+    type: null,
+    id: '',
+    name: ''
+  });
+
   // Timer effect
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -166,6 +179,50 @@ const BodyTracker: React.FC = () => {
     d.setUTCDate(d.getUTCDate() + 4 - dayNum);
     const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
     return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  };
+
+  // Delete confirmation handlers
+  const showDeleteConfirmation = (type: 'workout' | 'meal' | 'weight', id: string, name: string) => {
+    setDeleteConfirmation({
+      show: true,
+      type,
+      id,
+      name
+    });
+  };
+
+  const hideDeleteConfirmation = () => {
+    setDeleteConfirmation({
+      show: false,
+      type: null,
+      id: '',
+      name: ''
+    });
+  };
+
+  const confirmDelete = () => {
+    const { type, id } = deleteConfirmation;
+    
+    try {
+      switch (type) {
+        case 'workout':
+          setWorkouts(prev => prev.filter(w => w.id !== id));
+          showSuccess('Workout Dihapus', 'Workout berhasil dihapus dari daftar');
+          break;
+        case 'meal':
+          setCaloriesIn(prev => prev.filter(m => m.id !== id));
+          showSuccess('Makanan Dihapus', 'Data makanan berhasil dihapus');
+          break;
+        case 'weight':
+          setWeightEntries(prev => prev.filter(w => w.id !== id));
+          showSuccess('Data Berat Dihapus', 'Data berat badan berhasil dihapus');
+          break;
+      }
+    } catch (error) {
+      showError('Error', 'Gagal menghapus data');
+    } finally {
+      hideDeleteConfirmation();
+    }
   };
 
   // Handle functions
@@ -283,25 +340,6 @@ const BodyTracker: React.FC = () => {
     showSuccess('Workout Diperbarui', 'Workout berhasil diperbarui!');
   };
 
-  const deleteWorkout = async (id: string) => {
-    const workout = workouts.find(w => w.id === id);
-    if (!workout) return;
-
-    showConfirmation(
-      'Hapus Workout',
-      `Apakah Anda yakin ingin menghapus "${workout.name}"?`,
-      () => {
-        setWorkouts(workouts.filter(w => w.id !== id));
-        showSuccess('Workout Dihapus', 'Workout berhasil dihapus dari daftar');
-      },
-      {
-        confirmText: 'Hapus',
-        cancelText: 'Batal',
-        type: 'danger'
-      }
-    );
-  };
-
   const addWorkout = () => {
     if (!newWorkout.name.trim()) return;
     
@@ -348,25 +386,6 @@ const BodyTracker: React.FC = () => {
     showSuccess('Makanan Diperbarui', 'Data makanan berhasil diperbarui!');
   };
 
-  const deleteMeal = async (id: string) => {
-    const meal = caloriesIn.find(m => m.id === id);
-    if (!meal) return;
-
-    showConfirmation(
-      'Hapus Makanan',
-      `Apakah Anda yakin ingin menghapus "${meal.description}" dari ${meal.category}?`,
-      () => {
-        setCaloriesIn(caloriesIn.filter(m => m.id !== id));
-        showSuccess('Makanan Dihapus', 'Data makanan berhasil dihapus');
-      },
-      {
-        confirmText: 'Hapus',
-        cancelText: 'Batal',
-        type: 'danger'
-      }
-    );
-  };
-
   const addMeal = () => {
     if (!newMeal.description.trim() || !newMeal.amount) return;
     
@@ -410,25 +429,6 @@ const BodyTracker: React.FC = () => {
     setNewWeight({ weight: '', bodyFat: '' });
     setShowAddWeight(false);
     showSuccess('Data Berat Diperbarui', 'Data berat badan berhasil diperbarui!');
-  };
-
-  const deleteWeight = async (id: string) => {
-    const weight = weightEntries.find(w => w.id === id);
-    if (!weight) return;
-
-    showConfirmation(
-      'Hapus Data Berat',
-      `Apakah Anda yakin ingin menghapus data berat ${weight.weight} kg pada minggu ${weight.week}?`,
-      () => {
-        setWeightEntries(weightEntries.filter(w => w.id !== id));
-        showSuccess('Data Berat Dihapus', 'Data berat badan berhasil dihapus');
-      },
-      {
-        confirmText: 'Hapus',
-        cancelText: 'Batal',
-        type: 'danger'
-      }
-    );
   };
 
   const addWeight = () => {
@@ -619,7 +619,7 @@ const BodyTracker: React.FC = () => {
                     <Edit2 className="w-3 h-3" />
                   </button>
                   <button
-                    onClick={() => deleteWorkout(workout.id)}
+                    onClick={() => showDeleteConfirmation('workout', workout.id, workout.name)}
                     className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all duration-200 hover-scale"
                     title="Delete workout"
                   >
@@ -806,7 +806,7 @@ const BodyTracker: React.FC = () => {
                       <Edit2 className="w-3 h-3" />
                     </button>
                     <button
-                      onClick={() => deleteMeal(meal.id)}
+                      onClick={() => showDeleteConfirmation('meal', meal.id, meal.description)}
                       className="p-1 text-red-500 hover:bg-red-50 rounded transition-all duration-200"
                       title="Delete meal"
                     >
@@ -938,7 +938,7 @@ const BodyTracker: React.FC = () => {
                       <Edit2 className="w-3 h-3" />
                     </button>
                     <button
-                      onClick={() => deleteWeight(entry.id)}
+                      onClick={() => showDeleteConfirmation('weight', entry.id, `${entry.weight} kg`)}
                       className="p-1 text-red-500 hover:bg-red-50 rounded transition-all duration-200"
                       title="Delete weight"
                     >
@@ -1132,6 +1132,46 @@ const BodyTracker: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmation.show && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+            <div className="p-6">
+              {/* Icon */}
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="w-6 h-6 text-red-600" />
+              </div>
+              
+              {/* Content */}
+              <div className="text-center mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                  Hapus {deleteConfirmation.type === 'workout' ? 'Workout' : deleteConfirmation.type === 'meal' ? 'Makanan' : 'Data Berat'}
+                </h3>
+                <p className="text-gray-600 leading-relaxed">
+                  Apakah Anda yakin ingin menghapus "{deleteConfirmation.name}"?
+                </p>
+              </div>
+              
+              {/* Actions */}
+              <div className="flex space-x-3">
+                <button
+                  onClick={hideDeleteConfirmation}
+                  className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition-all duration-200"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-all duration-200"
+                >
+                  Hapus
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
