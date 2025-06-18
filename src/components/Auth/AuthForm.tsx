@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, UserPlus, Loader2, AlertCircle, CheckCircle, Info, Clock } from 'lucide-react';
+import { LogIn, UserPlus, Loader2, AlertCircle, CheckCircle, Info, Clock, Mail } from 'lucide-react';
 
 const AuthForm: React.FC = () => {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -11,6 +11,7 @@ const AuthForm: React.FC = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [rateLimitSeconds, setRateLimitSeconds] = useState(0);
+  const [isEmailNotConfirmed, setIsEmailNotConfirmed] = useState(false);
   
   const { signUp, signIn } = useAuth();
   const navigate = useNavigate();
@@ -45,32 +46,43 @@ const AuthForm: React.FC = () => {
         error?.message?.includes('over_email_send_rate_limit')) {
       const seconds = extractRateLimitSeconds(error.message);
       setRateLimitSeconds(seconds);
+      setIsEmailNotConfirmed(false);
       return `Too many attempts. Please wait ${seconds} seconds before trying again.`;
+    }
+    
+    // Handle email not confirmed error specifically
+    if (error?.message?.includes('Email not confirmed') || error?.code === 'email_not_confirmed') {
+      setIsEmailNotConfirmed(true);
+      return 'Your email address has not been confirmed yet. Please check your email inbox (including spam/junk folder) and click the confirmation link before signing in.';
     }
     
     // Handle Supabase auth errors more specifically
     if (error?.message?.includes('Invalid login credentials') || error?.message?.includes('invalid_credentials')) {
+      setIsEmailNotConfirmed(false);
       return 'The email or password you entered is incorrect. Please double-check your credentials. If you recently signed up, make sure you\'ve confirmed your email address by clicking the link sent to your inbox.';
     }
-    if (error?.message?.includes('Email not confirmed')) {
-      return 'Please check your email and click the confirmation link before signing in.';
-    }
     if (error?.message?.includes('User already registered')) {
+      setIsEmailNotConfirmed(false);
       return 'An account with this email already exists. Try signing in instead.';
     }
     if (error?.message?.includes('Password should be at least')) {
+      setIsEmailNotConfirmed(false);
       return 'Password must be at least 6 characters long.';
     }
     if (error?.message?.includes('Signup requires a valid password')) {
+      setIsEmailNotConfirmed(false);
       return 'Please enter a valid password (at least 6 characters).';
     }
     if (error?.message?.includes('Unable to validate email address')) {
+      setIsEmailNotConfirmed(false);
       return 'Please enter a valid email address.';
     }
     if (error?.message?.includes('Signups not allowed')) {
+      setIsEmailNotConfirmed(false);
       return 'New account registration is currently disabled. Please contact support.';
     }
     
+    setIsEmailNotConfirmed(false);
     return error?.message || 'An unexpected error occurred. Please try again.';
   };
 
@@ -85,6 +97,7 @@ const AuthForm: React.FC = () => {
     setLoading(true);
     setError('');
     setSuccess('');
+    setIsEmailNotConfirmed(false);
 
     // Basic validation
     if (!email.trim() || !password.trim()) {
@@ -133,6 +146,7 @@ const AuthForm: React.FC = () => {
     setError('');
     setSuccess('');
     setRateLimitSeconds(0);
+    setIsEmailNotConfirmed(false);
     // Clear form when switching modes
     setEmail('');
     setPassword('');
@@ -155,11 +169,15 @@ const AuthForm: React.FC = () => {
         <form className="mt-6 space-y-5 bg-white p-6 lg:p-7 rounded-lg shadow-sm border border-gray-200" onSubmit={handleSubmit}>
           {error && (
             <div className={`border px-3 py-3 rounded-md text-sm flex items-start space-x-2 ${
-              isRateLimited 
+              isEmailNotConfirmed
+                ? 'bg-amber-50 border-amber-200 text-amber-700'
+                : isRateLimited 
                 ? 'bg-orange-50 border-orange-200 text-orange-600' 
                 : 'bg-red-50 border-red-200 text-red-600'
             }`}>
-              {isRateLimited ? (
+              {isEmailNotConfirmed ? (
+                <Mail className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              ) : isRateLimited ? (
                 <Clock className="w-4 h-4 mt-0.5 flex-shrink-0" />
               ) : (
                 <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
@@ -176,6 +194,19 @@ const AuthForm: React.FC = () => {
                         />
                       </div>
                       <span className="font-mono">{rateLimitSeconds}s</span>
+                    </div>
+                  </div>
+                )}
+                {isEmailNotConfirmed && (
+                  <div className="mt-3 text-xs">
+                    <div className="bg-amber-100 border border-amber-200 rounded-md p-2">
+                      <p className="font-medium mb-1">What to do next:</p>
+                      <ul className="list-disc list-inside space-y-1 text-amber-600">
+                        <li>Check your email inbox for "{email}"</li>
+                        <li>Look in your spam/junk folder if not found</li>
+                        <li>Click the "Confirm your email" link</li>
+                        <li>Return here and try signing in again</li>
+                      </ul>
                     </div>
                   </div>
                 )}
