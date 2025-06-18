@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, UserPlus, Loader2, AlertCircle, CheckCircle, Info } from 'lucide-react';
+import { LogIn, UserPlus, Loader2, AlertCircle, CheckCircle, Info, Clock } from 'lucide-react';
 
 const AuthForm: React.FC = () => {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -10,12 +10,43 @@ const AuthForm: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [rateLimitSeconds, setRateLimitSeconds] = useState(0);
   
   const { signUp, signIn } = useAuth();
   const navigate = useNavigate();
 
+  // Countdown timer for rate limit
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (rateLimitSeconds > 0) {
+      interval = setInterval(() => {
+        setRateLimitSeconds(prev => {
+          if (prev <= 1) {
+            setError('');
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [rateLimitSeconds]);
+
+  const extractRateLimitSeconds = (errorMessage: string): number => {
+    const match = errorMessage.match(/after (\d+) seconds?/);
+    return match ? parseInt(match[1], 10) : 0;
+  };
+
   const getErrorMessage = (error: any) => {
     console.log('Full error object:', error);
+    
+    // Handle rate limiting with countdown
+    if (error?.message?.includes('For security purposes, you can only request this after') || 
+        error?.message?.includes('over_email_send_rate_limit')) {
+      const seconds = extractRateLimitSeconds(error.message);
+      setRateLimitSeconds(seconds);
+      return `Too many attempts. Please wait ${seconds} seconds before trying again.`;
+    }
     
     // Handle Supabase auth errors more specifically
     if (error?.message?.includes('Invalid login credentials') || error?.message?.includes('invalid_credentials')) {
@@ -36,9 +67,6 @@ const AuthForm: React.FC = () => {
     if (error?.message?.includes('Unable to validate email address')) {
       return 'Please enter a valid email address.';
     }
-    if (error?.message?.includes('Email rate limit exceeded')) {
-      return 'Too many email attempts. Please wait a few minutes before trying again.';
-    }
     if (error?.message?.includes('Signups not allowed')) {
       return 'New account registration is currently disabled. Please contact support.';
     }
@@ -48,6 +76,12 @@ const AuthForm: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Prevent submission if rate limited
+    if (rateLimitSeconds > 0) {
+      return;
+    }
+    
     setLoading(true);
     setError('');
     setSuccess('');
@@ -98,10 +132,13 @@ const AuthForm: React.FC = () => {
     setIsSignUp(!isSignUp);
     setError('');
     setSuccess('');
+    setRateLimitSeconds(0);
     // Clear form when switching modes
     setEmail('');
     setPassword('');
   };
+
+  const isRateLimited = rateLimitSeconds > 0;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
@@ -117,9 +154,32 @@ const AuthForm: React.FC = () => {
         
         <form className="mt-6 space-y-5 bg-white p-6 lg:p-7 rounded-lg shadow-sm border border-gray-200" onSubmit={handleSubmit}>
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-600 px-3 py-3 rounded-md text-sm flex items-start space-x-2">
-              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-              <span>{error}</span>
+            <div className={`border px-3 py-3 rounded-md text-sm flex items-start space-x-2 ${
+              isRateLimited 
+                ? 'bg-orange-50 border-orange-200 text-orange-600' 
+                : 'bg-red-50 border-red-200 text-red-600'
+            }`}>
+              {isRateLimited ? (
+                <Clock className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              )}
+              <div>
+                <span>{error}</span>
+                {isRateLimited && (
+                  <div className="mt-2 text-xs">
+                    <div className="flex items-center space-x-2">
+                      <div className="bg-orange-200 rounded-full h-2 w-16 overflow-hidden">
+                        <div 
+                          className="bg-orange-500 h-full transition-all duration-1000 ease-linear"
+                          style={{ width: `${((60 - rateLimitSeconds) / 60) * 100}%` }}
+                        />
+                      </div>
+                      <span className="font-mono">{rateLimitSeconds}s</span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -154,7 +214,7 @@ const AuthForm: React.FC = () => {
                 onChange={(e) => setEmail(e.target.value)}
                 className="input"
                 placeholder="Enter your email"
-                disabled={loading}
+                disabled={loading || isRateLimited}
               />
             </div>
             
@@ -173,7 +233,7 @@ const AuthForm: React.FC = () => {
                 className="input"
                 placeholder="Enter your password"
                 minLength={6}
-                disabled={loading}
+                disabled={loading || isRateLimited}
               />
               {isSignUp && (
                 <p className="mt-1.5 text-xs text-gray-500">
@@ -185,11 +245,16 @@ const AuthForm: React.FC = () => {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || isRateLimited}
             className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed py-2.5"
           >
             {loading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
+            ) : isRateLimited ? (
+              <>
+                <Clock className="w-4 h-4 mr-2" />
+                Wait {rateLimitSeconds}s
+              </>
             ) : (
               <>
                 {isSignUp ? <UserPlus className="w-4 h-4 mr-2" /> : <LogIn className="w-4 h-4 mr-2" />}
@@ -202,8 +267,8 @@ const AuthForm: React.FC = () => {
             <button
               type="button"
               onClick={handleModeSwitch}
-              className="text-sm text-blue-600 hover:text-blue-700 transition-colors duration-150"
-              disabled={loading}
+              className="text-sm text-blue-600 hover:text-blue-700 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={loading || isRateLimited}
             >
               {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
             </button>
@@ -216,7 +281,8 @@ const AuthForm: React.FC = () => {
                 • Verify your email and password are correct<br />
                 • Check if you've confirmed your email after signing up<br />
                 • Look in your spam folder for the confirmation email<br />
-                • Make sure you're using the same email you registered with
+                • Make sure you're using the same email you registered with<br />
+                • Wait if you see a rate limit message (security feature)
               </p>
             </div>
           )}
