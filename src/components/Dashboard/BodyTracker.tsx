@@ -165,7 +165,7 @@ const BodyTracker: React.FC = () => {
 
   const weeklyWorkouts = workouts.filter(w => w.completed).length;
 
-  // Helper functions
+  // Helper functions with Indonesian locale
   const formatTime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -175,6 +175,15 @@ const BodyTracker: React.FC = () => {
       return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const formatDateIndonesian = (dateString: string): string => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    });
   };
 
   const getWeekString = (date: Date): string => {
@@ -505,7 +514,7 @@ const BodyTracker: React.FC = () => {
       {/* 💪 1. WORKOUT CHECKLIST */}
       <div className="card">
         <div className="card-header">
-          <div className="flex items-center space-x-2 lg:space-x-3 min-w-0">
+          <div className="flex items-center space-x-2 lg:space-x-3 min-w-0 flex-1">
             <div className="w-6 h-6 lg:w-8 lg:h-8 bg-blue-500 rounded-xl flex items-center justify-center flex-shrink-0">
               <Dumbbell className="w-3 h-3 lg:w-4 lg:h-4 text-white" />
             </div>
@@ -516,7 +525,7 @@ const BodyTracker: React.FC = () => {
           </div>
           <button
             onClick={() => setShowAddWorkout(true)}
-            className="btn-primary text-xs lg:text-sm px-2 lg:px-3 py-1.5 lg:py-2 flex-shrink-0"
+            className="btn-primary text-xs lg:text-sm px-2 lg:px-3 py-1.5 lg:py-2 flex-shrink-0 ml-2"
           >
             <Plus className="w-3 h-3 lg:w-4 lg:h-4 mr-1 lg:mr-2" />
             <span className="hidden sm:inline">Add Workout</span>
@@ -654,7 +663,7 @@ const BodyTracker: React.FC = () => {
         {/* Add/Edit Workout Modal */}
         {showAddWorkout && (
           <div className="fixed inset-0 bg-black bg-opacity-25 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
               <div className="p-4 lg:p-6">
                 <h3 className="text-base lg:text-lg font-semibold text-gray-900 mb-4">
                   {editingWorkout ? 'Edit Workout' : 'Add New Workout'}
@@ -751,7 +760,7 @@ const BodyTracker: React.FC = () => {
       {/* 🍎 2. CALORIE TRACKER */}
       <div className="card">
         <div className="card-header">
-          <div className="flex items-center space-x-2 lg:space-x-3 min-w-0">
+          <div className="flex items-center space-x-2 lg:space-x-3 min-w-0 flex-1">
             <div className="w-6 h-6 lg:w-8 lg:h-8 bg-green-500 rounded-xl flex items-center justify-center flex-shrink-0">
               <Apple className="w-3 h-3 lg:w-4 lg:h-4 text-white" />
             </div>
@@ -764,7 +773,7 @@ const BodyTracker: React.FC = () => {
           </div>
           <button
             onClick={() => setShowAddMeal(true)}
-            className="btn-primary text-xs lg:text-sm px-2 lg:px-3 py-1.5 lg:py-2 flex-shrink-0"
+            className="btn-primary text-xs lg:text-sm px-2 lg:px-3 py-1.5 lg:py-2 flex-shrink-0 ml-2"
           >
             <Plus className="w-3 h-3 lg:w-4 lg:h-4 mr-1 lg:mr-2" />
             <span className="hidden sm:inline">Add Meal</span>
@@ -845,7 +854,7 @@ const BodyTracker: React.FC = () => {
         {/* Add/Edit Meal Modal */}
         {showAddMeal && (
           <div className="fixed inset-0 bg-black bg-opacity-25 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
               <div className="p-4 lg:p-6">
                 <h3 className="text-base lg:text-lg font-semibold text-gray-900 mb-4">
                   {editingMeal ? 'Edit Meal' : 'Add Meal'}
@@ -897,7 +906,7 @@ const BodyTracker: React.FC = () => {
       {/* ⚖️ 3. BODY PROGRESS CHART - WEEKLY */}
       <div className="card">
         <div className="card-header">
-          <div className="flex items-center space-x-2 lg:space-x-3 min-w-0">
+          <div className="flex items-center space-x-2 lg:space-x-3 min-w-0 flex-1">
             <div className="w-6 h-6 lg:w-8 lg:h-8 bg-purple-500 rounded-xl flex items-center justify-center flex-shrink-0">
               <Scale className="w-3 h-3 lg:w-4 lg:h-4 text-white" />
             </div>
@@ -905,7 +914,7 @@ const BodyTracker: React.FC = () => {
           </div>
           <button
             onClick={() => setShowAddWeight(true)}
-            className="btn-primary text-xs lg:text-sm px-2 lg:px-3 py-1.5 lg:py-2 flex-shrink-0"
+            className="btn-primary text-xs lg:text-sm px-2 lg:px-3 py-1.5 lg:py-2 flex-shrink-0 ml-2"
           >
             <Plus className="w-3 h-3 lg:w-4 lg:h-4 mr-1 lg:mr-2" />
             <span className="hidden sm:inline">Add Entry</span>
@@ -956,7 +965,7 @@ const BodyTracker: React.FC = () => {
                   <div className="text-xs text-gray-500">Week {entry.week}</div>
                 </div>
                 <div className="flex items-center space-x-2 flex-shrink-0">
-                  <span className="text-xs text-gray-500">{new Date(entry.date).toLocaleDateString()}</span>
+                  <span className="text-xs text-gray-500">{formatDateIndonesian(entry.date)}</span>
                   <div className="flex items-center space-x-0.5">
                     <button
                       onClick={() => editWeight(entry)}
@@ -982,7 +991,7 @@ const BodyTracker: React.FC = () => {
         {/* Add/Edit Weight Modal */}
         {showAddWeight && (
           <div className="fixed inset-0 bg-black bg-opacity-25 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
               <div className="p-4 lg:p-6">
                 <h3 className="text-base lg:text-lg font-semibold text-gray-900 mb-4">
                   {editingWeight ? 'Edit Weekly Weight Entry' : 'Add Weekly Weight Entry'}
@@ -1027,7 +1036,7 @@ const BodyTracker: React.FC = () => {
       {/* 🎯 4. FITNESS GOAL SUMMARY */}
       <div className="card">
         <div className="card-header">
-          <div className="flex items-center space-x-2 lg:space-x-3 min-w-0">
+          <div className="flex items-center space-x-2 lg:space-x-3 min-w-0 flex-1">
             <div className="w-6 h-6 lg:w-8 lg:h-8 bg-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
               <Target className="w-3 h-3 lg:w-4 lg:h-4 text-white" />
             </div>
@@ -1035,7 +1044,7 @@ const BodyTracker: React.FC = () => {
           </div>
           <button
             onClick={() => setShowEditGoal(true)}
-            className="btn-secondary text-xs lg:text-sm px-2 lg:px-3 py-1.5 lg:py-2 flex-shrink-0"
+            className="btn-secondary text-xs lg:text-sm px-2 lg:px-3 py-1.5 lg:py-2 flex-shrink-0 ml-2"
           >
             <Edit2 className="w-3 h-3 lg:w-4 lg:h-4 mr-1 lg:mr-2" />
             <span className="hidden sm:inline">Edit Goal</span>
@@ -1059,7 +1068,7 @@ const BodyTracker: React.FC = () => {
           <div className="p-2 lg:p-3 bg-gray-50 rounded-xl border border-gray-200">
             <div className="text-xs lg:text-sm font-medium text-gray-700">Update Terakhir</div>
             <div className="text-xs lg:text-sm font-bold text-gray-600">
-              {new Date(fitnessGoal.lastUpdate).toLocaleDateString()}
+              {formatDateIndonesian(fitnessGoal.lastUpdate)}
             </div>
           </div>
         </div>
@@ -1067,7 +1076,7 @@ const BodyTracker: React.FC = () => {
         {/* Edit Goal Modal */}
         {showEditGoal && (
           <div className="fixed inset-0 bg-black bg-opacity-25 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
               <div className="p-4 lg:p-6">
                 <h3 className="text-base lg:text-lg font-semibold text-gray-900 mb-4">Edit Fitness Goal</h3>
                 <div className="space-y-3">
@@ -1165,7 +1174,7 @@ const BodyTracker: React.FC = () => {
       {/* Delete Confirmation Modal */}
       {deleteConfirmation.show && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
             <div className="p-4 lg:p-6">
               {/* Icon */}
               <div className="w-10 h-10 lg:w-12 lg:h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
