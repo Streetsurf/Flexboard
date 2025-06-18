@@ -104,17 +104,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error('Email and password are required');
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
-    if (error) {
-      console.error('Sign in error:', error);
+      if (error) {
+        console.error('Sign in error:', error);
+        // Re-throw the error with all its properties intact
+        throw error;
+      }
+
+      return data;
+    } catch (error) {
+      // Ensure we preserve the original error structure
+      console.error('Sign in catch block:', error);
       throw error;
     }
-
-    return data;
   };
 
   const signOut = async () => {

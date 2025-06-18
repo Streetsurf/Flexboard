@@ -50,8 +50,11 @@ const AuthForm: React.FC = () => {
       return `Too many attempts. Please wait ${seconds} seconds before trying again.`;
     }
     
-    // Handle email not confirmed error specifically
-    if (error?.message?.includes('Email not confirmed') || error?.code === 'email_not_confirmed') {
+    // Handle email not confirmed error specifically - check multiple possible formats
+    if (error?.message?.includes('Email not confirmed') || 
+        error?.code === 'email_not_confirmed' ||
+        error?.message?.toLowerCase().includes('email not confirmed') ||
+        (error?.status === 400 && error?.body && JSON.stringify(error.body).includes('email_not_confirmed'))) {
       setIsEmailNotConfirmed(true);
       return 'Your email address has not been confirmed yet. Please check your email inbox (including spam/junk folder) and click the confirmation link before signing in.';
     }
