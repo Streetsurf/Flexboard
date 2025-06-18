@@ -691,17 +691,19 @@ const BodyTracker: React.FC = () => {
                       <span className="text-sm font-medium text-gray-700">Ada Waktu (Timer)</span>
                     </label>
                     {newWorkout.hasDuration && (
-                      <div className="flex items-center space-x-2">
+                      <div className="space-y-2">
                         <input
                           type="number"
                           value={newWorkout.duration_minutes}
                           onChange={(e) => setNewWorkout({ ...newWorkout, duration_minutes: e.target.value })}
-                          placeholder="Durasi"
-                          className="input flex-1"
+                          placeholder="Durasi dalam menit"
+                          className="input"
                           min="1"
                         />
-                        <span className="text-sm text-gray-500">menit</span>
-                        <Timer className="w-4 h-4 text-purple-500" />
+                        <div className="flex items-center space-x-2 text-xs text-gray-500">
+                          <Timer className="w-4 h-4 text-purple-500" />
+                          <span>Timer akan tersedia saat workout dimulai</span>
+                        </div>
                       </div>
                     )}
                   </div>
