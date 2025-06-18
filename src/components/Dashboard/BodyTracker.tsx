@@ -79,7 +79,7 @@ const BodyTracker: React.FC = () => {
     { id: '1', type: 'out', category: 'Workout', amount: 320, description: 'Push-up + Jogging + Squat', date: '2024-01-15' }
   ]);
 
-  // Weekly weight entries instead of daily
+  // Weekly weight entries with proper state management
   const [weightEntries, setWeightEntries] = useState<WeightEntry[]>([
     { id: '1', weight: 72.5, bodyFat: 18.2, date: '2024-01-15', week: '2024-W03' },
     { id: '2', weight: 72.8, bodyFat: 18.5, date: '2024-01-08', week: '2024-W02' },
@@ -139,6 +139,16 @@ const BodyTracker: React.FC = () => {
     }
     return () => clearInterval(interval);
   }, [activeTimer]);
+
+  // Update current weight in fitness goal when weight entries change
+  useEffect(() => {
+    if (weightEntries.length > 0) {
+      setFitnessGoal(prev => ({
+        ...prev,
+        currentWeight: weightEntries[0].weight
+      }));
+    }
+  }, [weightEntries]);
 
   // Calculate statistics
   const completedWorkouts = workouts.filter(w => w.completed).length;
@@ -214,7 +224,10 @@ const BodyTracker: React.FC = () => {
           showSuccess('Makanan Dihapus', 'Data makanan berhasil dihapus');
           break;
         case 'weight':
-          setWeightEntries(prev => prev.filter(w => w.id !== id));
+          setWeightEntries(prev => {
+            const newEntries = prev.filter(w => w.id !== id);
+            return newEntries;
+          });
           showSuccess('Data Berat Dihapus', 'Data berat badan berhasil dihapus');
           break;
       }
@@ -416,15 +429,19 @@ const BodyTracker: React.FC = () => {
   const updateWeight = () => {
     if (!editingWeight || !newWeight.weight) return;
     
-    setWeightEntries(weightEntries.map(weight => 
-      weight.id === editingWeight.id 
-        ? { 
-            ...weight, 
-            weight: parseFloat(newWeight.weight),
-            bodyFat: newWeight.bodyFat ? parseFloat(newWeight.bodyFat) : undefined
-          }
-        : weight
-    ));
+    setWeightEntries(prev => {
+      const newEntries = prev.map(weight => 
+        weight.id === editingWeight.id 
+          ? { 
+              ...weight, 
+              weight: parseFloat(newWeight.weight),
+              bodyFat: newWeight.bodyFat ? parseFloat(newWeight.bodyFat) : undefined
+            }
+          : weight
+      );
+      return newEntries;
+    });
+    
     setEditingWeight(null);
     setNewWeight({ weight: '', bodyFat: '' });
     setShowAddWeight(false);
@@ -443,7 +460,7 @@ const BodyTracker: React.FC = () => {
       week: getWeekString(currentDate)
     };
     
-    setWeightEntries([weight, ...weightEntries]);
+    setWeightEntries(prev => [weight, ...prev]);
     setNewWeight({ weight: '', bodyFat: '' });
     setShowAddWeight(false);
     showSuccess('Data Berat Ditambahkan', `Berat ${weight.weight} kg berhasil dicatat!`);
@@ -477,7 +494,7 @@ const BodyTracker: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 lg:space-y-6">
       {/* Breadcrumbs */}
       <nav className="breadcrumbs">
         <span>Dashboard</span>
@@ -488,29 +505,30 @@ const BodyTracker: React.FC = () => {
       {/* 💪 1. WORKOUT CHECKLIST */}
       <div className="card">
         <div className="card-header">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-blue-500 rounded-xl flex items-center justify-center">
-              <Dumbbell className="w-4 h-4 text-white" />
+          <div className="flex items-center space-x-2 lg:space-x-3 min-w-0">
+            <div className="w-6 h-6 lg:w-8 lg:h-8 bg-blue-500 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Dumbbell className="w-3 h-3 lg:w-4 lg:h-4 text-white" />
             </div>
-            <div>
-              <h2 className="card-title">Workout Checklist</h2>
+            <div className="min-w-0 flex-1">
+              <h2 className="card-title text-sm lg:text-base truncate">Workout Checklist</h2>
               <p className="text-xs text-gray-500">{completedWorkouts} dari {totalWorkouts} selesai</p>
             </div>
           </div>
           <button
             onClick={() => setShowAddWorkout(true)}
-            className="btn-primary"
+            className="btn-primary text-xs lg:text-sm px-2 lg:px-3 py-1.5 lg:py-2 flex-shrink-0"
           >
-            <Plus className="w-4 h-4 mr-2" />
-            Add Workout
+            <Plus className="w-3 h-3 lg:w-4 lg:h-4 mr-1 lg:mr-2" />
+            <span className="hidden sm:inline">Add Workout</span>
+            <span className="sm:hidden">Add</span>
           </button>
         </div>
 
         {/* Progress Bar */}
-        <div className="mb-4">
+        <div className="mb-3 lg:mb-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-gray-700">Progress Hari Ini</span>
-            <span className="text-sm text-gray-600">{workoutProgress}%</span>
+            <span className="text-xs lg:text-sm font-medium text-gray-700">Progress Hari Ini</span>
+            <span className="text-xs lg:text-sm text-gray-600">{workoutProgress}%</span>
           </div>
           <div className="progress-bar">
             <div 
@@ -525,40 +543,42 @@ const BodyTracker: React.FC = () => {
           {workouts.map((workout, index) => (
             <div
               key={workout.id}
-              className={`p-3 border rounded-xl transition-all duration-200 hover-lift ${
+              className={`p-2 lg:p-3 border rounded-xl transition-all duration-200 hover-lift ${
                 workout.completed
                   ? 'bg-green-50 border-green-200'
                   : 'bg-white border-gray-200 hover:border-gray-300'
               }`}
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3 flex-1">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start space-x-2 lg:space-x-3 flex-1 min-w-0">
                   <button
                     onClick={() => toggleWorkout(workout.id)}
-                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200 hover-scale ${
+                    className={`w-4 h-4 lg:w-5 lg:h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200 hover-scale flex-shrink-0 mt-0.5 ${
                       workout.completed
                         ? 'bg-green-500 border-green-500 text-white'
                         : 'border-gray-300 hover:border-green-500'
                     }`}
                   >
-                    {workout.completed && <Check className="w-3 h-3" />}
+                    {workout.completed && <Check className="w-2 h-2 lg:w-3 lg:h-3" />}
                   </button>
                   
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2">
-                      <span className={`text-sm font-medium ${workout.completed ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-2 gap-1">
+                      <span className={`text-xs lg:text-sm font-medium truncate ${workout.completed ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
                         {workout.name}
                       </span>
-                      {workout.repetitions && (
-                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-                          {workout.repetitions}x
-                        </span>
-                      )}
-                      {workout.duration_minutes && (
-                        <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
-                          {workout.duration_minutes}m
-                        </span>
-                      )}
+                      <div className="flex items-center space-x-1 flex-shrink-0">
+                        {workout.repetitions && (
+                          <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">
+                            {workout.repetitions}x
+                          </span>
+                        )}
+                        {workout.duration_minutes && (
+                          <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">
+                            {workout.duration_minutes}m
+                          </span>
+                        )}
+                      </div>
                     </div>
                     
                     {/* Timer Display */}
@@ -578,7 +598,7 @@ const BodyTracker: React.FC = () => {
                 </div>
                 
                 {/* Action Buttons */}
-                <div className="flex items-center space-x-1 ml-3">
+                <div className="flex items-center space-x-0.5 lg:space-x-1 flex-shrink-0">
                   {/* Timer Controls */}
                   {workout.duration_minutes && !workout.completed && (
                     <>
@@ -586,14 +606,14 @@ const BodyTracker: React.FC = () => {
                         <>
                           <button
                             onClick={() => pauseTimer(workout.id)}
-                            className="p-1.5 text-orange-500 hover:bg-orange-50 rounded-lg transition-all duration-200 hover-scale"
+                            className="p-1 lg:p-1.5 text-orange-500 hover:bg-orange-50 rounded-lg transition-all duration-200 hover-scale"
                             title="Pause timer"
                           >
                             <Pause className="w-3 h-3" />
                           </button>
                           <button
                             onClick={() => finishWorkout(workout.id)}
-                            className="p-1.5 text-green-500 hover:bg-green-50 rounded-lg transition-all duration-200 hover-scale"
+                            className="p-1 lg:p-1.5 text-green-500 hover:bg-green-50 rounded-lg transition-all duration-200 hover-scale"
                             title="Finish workout"
                           >
                             <Square className="w-3 h-3" />
@@ -602,7 +622,7 @@ const BodyTracker: React.FC = () => {
                       ) : (
                         <button
                           onClick={() => startTimer(workout.id)}
-                          className="p-1.5 text-green-500 hover:bg-green-50 rounded-lg transition-all duration-200 hover-scale"
+                          className="p-1 lg:p-1.5 text-green-500 hover:bg-green-50 rounded-lg transition-all duration-200 hover-scale"
                           title="Start timer"
                         >
                           <Play className="w-3 h-3" />
@@ -613,14 +633,14 @@ const BodyTracker: React.FC = () => {
                   
                   <button
                     onClick={() => editWorkout(workout)}
-                    className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all duration-200 hover-scale"
+                    className="p-1 lg:p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all duration-200 hover-scale"
                     title="Edit workout"
                   >
                     <Edit2 className="w-3 h-3" />
                   </button>
                   <button
                     onClick={() => showDeleteConfirmation('workout', workout.id, workout.name)}
-                    className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all duration-200 hover-scale"
+                    className="p-1 lg:p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-all duration-200 hover-scale"
                     title="Delete workout"
                   >
                     <Trash2 className="w-3 h-3" />
@@ -634,9 +654,9 @@ const BodyTracker: React.FC = () => {
         {/* Add/Edit Workout Modal */}
         {showAddWorkout && (
           <div className="fixed inset-0 bg-black bg-opacity-25 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-              <div className="p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-4 lg:p-6">
+                <h3 className="text-base lg:text-lg font-semibold text-gray-900 mb-4">
                   {editingWorkout ? 'Edit Workout' : 'Add New Workout'}
                 </h3>
                 
@@ -731,12 +751,12 @@ const BodyTracker: React.FC = () => {
       {/* 🍎 2. CALORIE TRACKER */}
       <div className="card">
         <div className="card-header">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-green-500 rounded-xl flex items-center justify-center">
-              <Apple className="w-4 h-4 text-white" />
+          <div className="flex items-center space-x-2 lg:space-x-3 min-w-0">
+            <div className="w-6 h-6 lg:w-8 lg:h-8 bg-green-500 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Apple className="w-3 h-3 lg:w-4 lg:h-4 text-white" />
             </div>
-            <div>
-              <h2 className="card-title">Calorie Tracker</h2>
+            <div className="min-w-0 flex-1">
+              <h2 className="card-title text-sm lg:text-base truncate">Calorie Tracker</h2>
               <p className="text-xs text-gray-500">
                 {calorieBalance > 0 ? `+${calorieBalance} surplus` : `${calorieBalance} defisit`}
               </p>
@@ -744,38 +764,39 @@ const BodyTracker: React.FC = () => {
           </div>
           <button
             onClick={() => setShowAddMeal(true)}
-            className="btn-primary"
+            className="btn-primary text-xs lg:text-sm px-2 lg:px-3 py-1.5 lg:py-2 flex-shrink-0"
           >
-            <Plus className="w-4 h-4 mr-2" />
-            Add Meal
+            <Plus className="w-3 h-3 lg:w-4 lg:h-4 mr-1 lg:mr-2" />
+            <span className="hidden sm:inline">Add Meal</span>
+            <span className="sm:hidden">Add</span>
           </button>
         </div>
 
         {/* Calorie Summary */}
-        <div className="grid grid-cols-2 gap-4 mb-4">
-          <div className="p-3 bg-green-50 rounded-xl border border-green-200">
+        <div className="grid grid-cols-2 gap-3 lg:gap-4 mb-3 lg:mb-4">
+          <div className="p-2 lg:p-3 bg-green-50 rounded-xl border border-green-200">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-green-700">Kalori Masuk</span>
-              <Apple className="w-4 h-4 text-green-600" />
+              <span className="text-xs lg:text-sm font-medium text-green-700">Kalori Masuk</span>
+              <Apple className="w-3 h-3 lg:w-4 lg:h-4 text-green-600" />
             </div>
-            <div className="text-xl font-bold text-green-600">{totalCaloriesIn}</div>
+            <div className="text-lg lg:text-xl font-bold text-green-600">{totalCaloriesIn}</div>
             <div className="text-xs text-green-600">kcal</div>
           </div>
-          <div className="p-3 bg-orange-50 rounded-xl border border-orange-200">
+          <div className="p-2 lg:p-3 bg-orange-50 rounded-xl border border-orange-200">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-orange-700">Kalori Keluar</span>
-              <Flame className="w-4 h-4 text-orange-600" />
+              <span className="text-xs lg:text-sm font-medium text-orange-700">Kalori Keluar</span>
+              <Flame className="w-3 h-3 lg:w-4 lg:h-4 text-orange-600" />
             </div>
-            <div className="text-xl font-bold text-orange-600">{totalCaloriesOut}</div>
+            <div className="text-lg lg:text-xl font-bold text-orange-600">{totalCaloriesOut}</div>
             <div className="text-xs text-orange-600">kcal</div>
           </div>
         </div>
 
         {/* Calorie Balance Progress */}
-        <div className="mb-4">
+        <div className="mb-3 lg:mb-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-gray-700">Balance</span>
-            <span className={`text-sm font-medium ${calorieBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+            <span className="text-xs lg:text-sm font-medium text-gray-700">Balance</span>
+            <span className={`text-xs lg:text-sm font-medium ${calorieBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
               {calorieBalance > 0 ? `+${calorieBalance}` : calorieBalance} kcal
             </span>
           </div>
@@ -789,17 +810,17 @@ const BodyTracker: React.FC = () => {
 
         {/* Recent Meals */}
         <div>
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Makanan Hari Ini</h4>
+          <h4 className="text-xs lg:text-sm font-medium text-gray-700 mb-2">Makanan Hari Ini</h4>
           <div className="space-y-2">
             {caloriesIn.slice(0, 3).map((meal, index) => (
-              <div key={meal.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                <div className="flex-1">
-                  <span className="text-sm font-medium text-gray-900">{meal.category}</span>
-                  <p className="text-xs text-gray-600">{meal.description}</p>
+              <div key={meal.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg gap-2">
+                <div className="flex-1 min-w-0">
+                  <span className="text-xs lg:text-sm font-medium text-gray-900 block truncate">{meal.category}</span>
+                  <p className="text-xs text-gray-600 truncate">{meal.description}</p>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm font-medium text-gray-900">{meal.amount} kcal</span>
-                  <div className="flex items-center space-x-1">
+                <div className="flex items-center space-x-2 flex-shrink-0">
+                  <span className="text-xs lg:text-sm font-medium text-gray-900">{meal.amount} kcal</span>
+                  <div className="flex items-center space-x-0.5">
                     <button
                       onClick={() => editMeal(meal)}
                       className="p-1 text-blue-500 hover:bg-blue-50 rounded transition-all duration-200"
@@ -825,8 +846,8 @@ const BodyTracker: React.FC = () => {
         {showAddMeal && (
           <div className="fixed inset-0 bg-black bg-opacity-25 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-              <div className="p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              <div className="p-4 lg:p-6">
+                <h3 className="text-base lg:text-lg font-semibold text-gray-900 mb-4">
                   {editingMeal ? 'Edit Meal' : 'Add Meal'}
                 </h3>
                 <div className="space-y-3">
@@ -876,40 +897,45 @@ const BodyTracker: React.FC = () => {
       {/* ⚖️ 3. BODY PROGRESS CHART - WEEKLY */}
       <div className="card">
         <div className="card-header">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-purple-500 rounded-xl flex items-center justify-center">
-              <Scale className="w-4 h-4 text-white" />
+          <div className="flex items-center space-x-2 lg:space-x-3 min-w-0">
+            <div className="w-6 h-6 lg:w-8 lg:h-8 bg-purple-500 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Scale className="w-3 h-3 lg:w-4 lg:h-4 text-white" />
             </div>
-            <h2 className="card-title">Weekly Body Progress</h2>
+            <h2 className="card-title text-sm lg:text-base truncate">Weekly Body Progress</h2>
           </div>
           <button
             onClick={() => setShowAddWeight(true)}
-            className="btn-primary"
+            className="btn-primary text-xs lg:text-sm px-2 lg:px-3 py-1.5 lg:py-2 flex-shrink-0"
           >
-            <Plus className="w-4 h-4 mr-2" />
-            Add Weekly Entry
+            <Plus className="w-3 h-3 lg:w-4 lg:h-4 mr-1 lg:mr-2" />
+            <span className="hidden sm:inline">Add Entry</span>
+            <span className="sm:hidden">Add</span>
           </button>
         </div>
 
         {/* Weight Chart Simulation - Weekly */}
-        <div className="mb-4 p-4 bg-gray-50 rounded-xl">
+        <div className="mb-3 lg:mb-4 p-3 lg:p-4 bg-gray-50 rounded-xl">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-medium text-gray-700">Berat Badan (7 minggu terakhir)</span>
-            <TrendingUp className="w-4 h-4 text-blue-600" />
+            <span className="text-xs lg:text-sm font-medium text-gray-700">Berat Badan (7 minggu terakhir)</span>
+            <TrendingUp className="w-3 h-3 lg:w-4 lg:h-4 text-blue-600" />
           </div>
           
           {/* Simple Line Chart Representation */}
-          <div className="h-32 flex items-end space-x-2">
+          <div className="h-24 lg:h-32 flex items-end space-x-1 lg:space-x-2">
             {weightEntries.slice(0, 7).reverse().map((entry, index) => {
-              const height = ((entry.weight - 70) / 5) * 100; // Scale for visualization
+              const minWeight = Math.min(...weightEntries.slice(0, 7).map(e => e.weight));
+              const maxWeight = Math.max(...weightEntries.slice(0, 7).map(e => e.weight));
+              const range = maxWeight - minWeight || 1;
+              const height = ((entry.weight - minWeight) / range) * 80 + 20; // 20-100% height
+              
               return (
                 <div key={entry.id} className="flex-1 flex flex-col items-center">
                   <div 
                     className="w-full bg-blue-500 rounded-t-sm transition-all duration-500"
-                    style={{ height: `${Math.max(height, 10)}%` }}
+                    style={{ height: `${height}%` }}
                   ></div>
                   <span className="text-xs text-gray-600 mt-1">{entry.weight}kg</span>
-                  <span className="text-xs text-gray-500">{entry.week}</span>
+                  <span className="text-xs text-gray-500 truncate">{entry.week}</span>
                 </div>
               );
             })}
@@ -918,20 +944,20 @@ const BodyTracker: React.FC = () => {
 
         {/* Weight Log - Weekly */}
         <div>
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Log 7 Minggu Terakhir</h4>
+          <h4 className="text-xs lg:text-sm font-medium text-gray-700 mb-2">Log 7 Minggu Terakhir</h4>
           <div className="space-y-2">
             {weightEntries.slice(0, 7).map((entry, index) => (
-              <div key={entry.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                <div className="flex-1">
-                  <span className="text-sm font-medium text-gray-900">{entry.weight} kg</span>
+              <div key={entry.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg gap-2">
+                <div className="flex-1 min-w-0">
+                  <span className="text-xs lg:text-sm font-medium text-gray-900">{entry.weight} kg</span>
                   {entry.bodyFat && (
                     <span className="text-xs text-gray-600 ml-2">({entry.bodyFat}% fat)</span>
                   )}
                   <div className="text-xs text-gray-500">Week {entry.week}</div>
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-2 flex-shrink-0">
                   <span className="text-xs text-gray-500">{new Date(entry.date).toLocaleDateString()}</span>
-                  <div className="flex items-center space-x-1">
+                  <div className="flex items-center space-x-0.5">
                     <button
                       onClick={() => editWeight(entry)}
                       className="p-1 text-blue-500 hover:bg-blue-50 rounded transition-all duration-200"
@@ -957,8 +983,8 @@ const BodyTracker: React.FC = () => {
         {showAddWeight && (
           <div className="fixed inset-0 bg-black bg-opacity-25 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-              <div className="p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              <div className="p-4 lg:p-6">
+                <h3 className="text-base lg:text-lg font-semibold text-gray-900 mb-4">
                   {editingWeight ? 'Edit Weekly Weight Entry' : 'Add Weekly Weight Entry'}
                 </h3>
                 <div className="space-y-3">
@@ -1001,37 +1027,38 @@ const BodyTracker: React.FC = () => {
       {/* 🎯 4. FITNESS GOAL SUMMARY */}
       <div className="card">
         <div className="card-header">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-orange-500 rounded-xl flex items-center justify-center">
-              <Target className="w-4 h-4 text-white" />
+          <div className="flex items-center space-x-2 lg:space-x-3 min-w-0">
+            <div className="w-6 h-6 lg:w-8 lg:h-8 bg-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Target className="w-3 h-3 lg:w-4 lg:h-4 text-white" />
             </div>
-            <h2 className="card-title">Fitness Goal Summary</h2>
+            <h2 className="card-title text-sm lg:text-base truncate">Fitness Goal Summary</h2>
           </div>
           <button
             onClick={() => setShowEditGoal(true)}
-            className="btn-secondary"
+            className="btn-secondary text-xs lg:text-sm px-2 lg:px-3 py-1.5 lg:py-2 flex-shrink-0"
           >
-            <Edit2 className="w-4 h-4 mr-2" />
-            Edit Goal
+            <Edit2 className="w-3 h-3 lg:w-4 lg:h-4 mr-1 lg:mr-2" />
+            <span className="hidden sm:inline">Edit Goal</span>
+            <span className="sm:hidden">Edit</span>
           </button>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-3 bg-blue-50 rounded-xl border border-blue-200">
-            <div className="text-sm font-medium text-blue-700">Berat Target</div>
-            <div className="text-xl font-bold text-blue-600">{fitnessGoal.targetWeight} kg</div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+          <div className="p-2 lg:p-3 bg-blue-50 rounded-xl border border-blue-200">
+            <div className="text-xs lg:text-sm font-medium text-blue-700">Berat Target</div>
+            <div className="text-lg lg:text-xl font-bold text-blue-600">{fitnessGoal.targetWeight} kg</div>
           </div>
-          <div className="p-3 bg-green-50 rounded-xl border border-green-200">
-            <div className="text-sm font-medium text-green-700">Berat Saat Ini</div>
-            <div className="text-xl font-bold text-green-600">{fitnessGoal.currentWeight} kg</div>
+          <div className="p-2 lg:p-3 bg-green-50 rounded-xl border border-green-200">
+            <div className="text-xs lg:text-sm font-medium text-green-700">Berat Saat Ini</div>
+            <div className="text-lg lg:text-xl font-bold text-green-600">{fitnessGoal.currentWeight} kg</div>
           </div>
-          <div className="p-3 bg-purple-50 rounded-xl border border-purple-200">
-            <div className="text-sm font-medium text-purple-700">Mode</div>
-            <div className="text-sm font-bold text-purple-600 capitalize">{fitnessGoal.mode}</div>
+          <div className="p-2 lg:p-3 bg-purple-50 rounded-xl border border-purple-200">
+            <div className="text-xs lg:text-sm font-medium text-purple-700">Mode</div>
+            <div className="text-xs lg:text-sm font-bold text-purple-600 capitalize">{fitnessGoal.mode}</div>
           </div>
-          <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
-            <div className="text-sm font-medium text-gray-700">Update Terakhir</div>
-            <div className="text-sm font-bold text-gray-600">
+          <div className="p-2 lg:p-3 bg-gray-50 rounded-xl border border-gray-200">
+            <div className="text-xs lg:text-sm font-medium text-gray-700">Update Terakhir</div>
+            <div className="text-xs lg:text-sm font-bold text-gray-600">
               {new Date(fitnessGoal.lastUpdate).toLocaleDateString()}
             </div>
           </div>
@@ -1041,8 +1068,8 @@ const BodyTracker: React.FC = () => {
         {showEditGoal && (
           <div className="fixed inset-0 bg-black bg-opacity-25 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-              <div className="p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Edit Fitness Goal</h3>
+              <div className="p-4 lg:p-6">
+                <h3 className="text-base lg:text-lg font-semibold text-gray-900 mb-4">Edit Fitness Goal</h3>
                 <div className="space-y-3">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1103,34 +1130,34 @@ const BodyTracker: React.FC = () => {
       {/* 📊 STATISTICS RING */}
       <div className="card">
         <div className="card-header">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-indigo-500 rounded-xl flex items-center justify-center">
-              <Activity className="w-4 h-4 text-white" />
+          <div className="flex items-center space-x-2 lg:space-x-3">
+            <div className="w-6 h-6 lg:w-8 lg:h-8 bg-indigo-500 rounded-xl flex items-center justify-center">
+              <Activity className="w-3 h-3 lg:w-4 lg:h-4 text-white" />
             </div>
-            <h2 className="card-title">Weekly Statistics</h2>
+            <h2 className="card-title text-sm lg:text-base">Weekly Statistics</h2>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
           <div className="stat-card stat-card-primary">
-            <div className="stat-value">{currentWeight} kg</div>
-            <div className="stat-label">Berat Terakhir</div>
+            <div className="stat-value text-lg lg:text-xl">{currentWeight} kg</div>
+            <div className="stat-label text-xs">Berat Terakhir</div>
           </div>
           <div className={`stat-card ${weightChange < 0 ? 'stat-card-success' : weightChange > 0 ? 'stat-card-error' : 'stat-card-warning'}`}>
-            <div className="stat-value">
+            <div className="stat-value text-lg lg:text-xl">
               {weightChange > 0 ? '+' : ''}{weightChange} kg
             </div>
-            <div className="stat-label">Perubahan 7 Minggu</div>
+            <div className="stat-label text-xs">Perubahan 7 Minggu</div>
           </div>
           <div className="stat-card stat-card-success">
-            <div className="stat-value">{weeklyWorkouts}</div>
-            <div className="stat-label">Workout Selesai</div>
+            <div className="stat-value text-lg lg:text-xl">{weeklyWorkouts}</div>
+            <div className="stat-label text-xs">Workout Selesai</div>
           </div>
           <div className={`stat-card ${calorieBalance > 0 ? 'stat-card-error' : 'stat-card-success'}`}>
-            <div className="stat-value">
+            <div className="stat-value text-lg lg:text-xl">
               {calorieBalance > 0 ? 'Surplus' : 'Defisit'}
             </div>
-            <div className="stat-label">Status Kalori</div>
+            <div className="stat-label text-xs">Status Kalori</div>
           </div>
         </div>
       </div>
@@ -1139,18 +1166,18 @@ const BodyTracker: React.FC = () => {
       {deleteConfirmation.show && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
-            <div className="p-6">
+            <div className="p-4 lg:p-6">
               {/* Icon */}
-              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Trash2 className="w-6 h-6 text-red-600" />
+              <div className="w-10 h-10 lg:w-12 lg:h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="w-5 h-5 lg:w-6 lg:h-6 text-red-600" />
               </div>
               
               {/* Content */}
-              <div className="text-center mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              <div className="text-center mb-4 lg:mb-6">
+                <h3 className="text-base lg:text-lg font-semibold text-gray-900 mb-2">
                   Hapus {deleteConfirmation.type === 'workout' ? 'Workout' : deleteConfirmation.type === 'meal' ? 'Makanan' : 'Data Berat'}
                 </h3>
-                <p className="text-gray-600 leading-relaxed">
+                <p className="text-sm lg:text-base text-gray-600 leading-relaxed">
                   Apakah Anda yakin ingin menghapus "{deleteConfirmation.name}"?
                 </p>
               </div>
@@ -1159,13 +1186,13 @@ const BodyTracker: React.FC = () => {
               <div className="flex space-x-3">
                 <button
                   onClick={hideDeleteConfirmation}
-                  className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition-all duration-200"
+                  className="flex-1 px-3 lg:px-4 py-2 lg:py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition-all duration-200 text-sm lg:text-base"
                 >
                   Batal
                 </button>
                 <button
                   onClick={confirmDelete}
-                  className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-all duration-200"
+                  className="flex-1 px-3 lg:px-4 py-2 lg:py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-all duration-200 text-sm lg:text-base"
                 >
                   Hapus
                 </button>
