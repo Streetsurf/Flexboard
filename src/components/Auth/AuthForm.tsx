@@ -17,8 +17,9 @@ const AuthForm: React.FC = () => {
   const getErrorMessage = (error: any) => {
     console.log('Full error object:', error);
     
-    if (error?.message?.includes('Invalid login credentials')) {
-      return 'Invalid email or password. Please check your credentials and try again. If you recently signed up, make sure to confirm your email first.';
+    // Handle Supabase auth errors more specifically
+    if (error?.message?.includes('Invalid login credentials') || error?.message?.includes('invalid_credentials')) {
+      return 'The email or password you entered is incorrect. Please double-check your credentials. If you recently signed up, make sure you\'ve confirmed your email address by clicking the link sent to your inbox.';
     }
     if (error?.message?.includes('Email not confirmed')) {
       return 'Please check your email and click the confirmation link before signing in.';
@@ -35,9 +36,13 @@ const AuthForm: React.FC = () => {
     if (error?.message?.includes('Unable to validate email address')) {
       return 'Please enter a valid email address.';
     }
-    if (error?.message?.includes('invalid_credentials')) {
-      return 'The email or password you entered is incorrect. Please double-check your credentials. If you recently signed up, make sure you\'ve confirmed your email address.';
+    if (error?.message?.includes('Email rate limit exceeded')) {
+      return 'Too many email attempts. Please wait a few minutes before trying again.';
     }
+    if (error?.message?.includes('Signups not allowed')) {
+      return 'New account registration is currently disabled. Please contact support.';
+    }
+    
     return error?.message || 'An unexpected error occurred. Please try again.';
   };
 
@@ -60,12 +65,22 @@ const AuthForm: React.FC = () => {
       return;
     }
 
+    // Email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      setError('Please enter a valid email address.');
+      setLoading(false);
+      return;
+    }
+
     try {
       if (isSignUp) {
         await signUp(email.trim(), password);
-        setSuccess('Account created successfully! Please check your email to confirm your account before signing in.');
+        setSuccess('Account created successfully! Please check your email (including spam folder) and click the confirmation link before signing in.');
         setError('');
-        // Don't navigate immediately after sign up, wait for email confirmation
+        // Clear form after successful signup
+        setEmail('');
+        setPassword('');
       } else {
         await signIn(email.trim(), password);
         navigate('/');
@@ -83,6 +98,9 @@ const AuthForm: React.FC = () => {
     setIsSignUp(!isSignUp);
     setError('');
     setSuccess('');
+    // Clear form when switching modes
+    setEmail('');
+    setPassword('');
   };
 
   return (
@@ -116,7 +134,7 @@ const AuthForm: React.FC = () => {
             <div className="bg-blue-50 border border-blue-200 text-blue-600 px-3 py-3 rounded-md text-sm flex items-start space-x-2">
               <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <span>
-                If you recently signed up, make sure to confirm your email address before signing in.
+                <strong>First time signing in?</strong> Make sure to confirm your email address first by clicking the link sent to your inbox after signing up.
               </span>
             </div>
           )}
@@ -194,9 +212,10 @@ const AuthForm: React.FC = () => {
           {!isSignUp && (
             <div className="text-center">
               <p className="text-xs text-gray-500 mt-4">
-                <strong>Troubleshooting:</strong><br />
-                • Double-check your email and password<br />
-                • If you recently signed up, confirm your email first<br />
+                <strong>Troubleshooting sign-in issues:</strong><br />
+                • Verify your email and password are correct<br />
+                • Check if you've confirmed your email after signing up<br />
+                • Look in your spam folder for the confirmation email<br />
                 • Make sure you're using the same email you registered with
               </p>
             </div>
@@ -205,7 +224,7 @@ const AuthForm: React.FC = () => {
           {isSignUp && (
             <div className="text-center">
               <p className="text-xs text-gray-500 mt-4">
-                After signing up, you'll receive an email with a confirmation link. You must click this link before you can sign in.
+                <strong>Important:</strong> After signing up, you'll receive a confirmation email. You must click the link in that email before you can sign in. Check your spam folder if you don't see it within a few minutes.
               </p>
             </div>
           )}
