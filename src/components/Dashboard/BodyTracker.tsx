@@ -14,15 +14,24 @@ import {
   Clock,
   Edit2,
   Save,
-  Trash2
+  Trash2,
+  Play,
+  Pause,
+  Square,
+  Timer
 } from 'lucide-react';
 import { useNotifications } from '../../hooks/useNotifications';
 
 interface WorkoutItem {
   id: string;
   name: string;
+  repetitions?: number;
+  duration_minutes?: number;
   completed: boolean;
   date: string;
+  timer_start_time?: string;
+  is_timer_active?: boolean;
+  actual_minutes?: number;
 }
 
 interface CalorieEntry {
@@ -39,6 +48,7 @@ interface WeightEntry {
   weight: number;
   bodyFat?: number;
   date: string;
+  week: string; // Format: "2024-W03"
 }
 
 interface FitnessGoal {
@@ -52,11 +62,11 @@ const BodyTracker: React.FC = () => {
   const { showSuccess, showError, showConfirmation } = useNotifications();
   
   const [workouts, setWorkouts] = useState<WorkoutItem[]>([
-    { id: '1', name: 'Push-up 3x15', completed: true, date: '2024-01-15' },
-    { id: '2', name: 'Jogging 20 menit', completed: true, date: '2024-01-15' },
-    { id: '3', name: 'Plank 60 detik', completed: false, date: '2024-01-15' },
-    { id: '4', name: 'Squat 3x20', completed: true, date: '2024-01-15' },
-    { id: '5', name: 'Pull-up 2x8', completed: false, date: '2024-01-15' }
+    { id: '1', name: 'Push-up', repetitions: 15, completed: true, date: '2024-01-15' },
+    { id: '2', name: 'Jogging', duration_minutes: 20, completed: true, date: '2024-01-15' },
+    { id: '3', name: 'Plank', duration_minutes: 1, completed: false, date: '2024-01-15' },
+    { id: '4', name: 'Squat', repetitions: 20, completed: true, date: '2024-01-15' },
+    { id: '5', name: 'Pull-up', repetitions: 8, completed: false, date: '2024-01-15' }
   ]);
 
   const [caloriesIn, setCaloriesIn] = useState<CalorieEntry[]>([
@@ -69,14 +79,15 @@ const BodyTracker: React.FC = () => {
     { id: '1', type: 'out', category: 'Workout', amount: 320, description: 'Push-up + Jogging + Squat', date: '2024-01-15' }
   ]);
 
+  // Weekly weight entries instead of daily
   const [weightEntries, setWeightEntries] = useState<WeightEntry[]>([
-    { id: '1', weight: 72.5, bodyFat: 18.2, date: '2024-01-15' },
-    { id: '2', weight: 72.8, bodyFat: 18.5, date: '2024-01-14' },
-    { id: '3', weight: 73.1, bodyFat: 18.8, date: '2024-01-13' },
-    { id: '4', weight: 73.0, bodyFat: 18.6, date: '2024-01-12' },
-    { id: '5', weight: 73.3, bodyFat: 19.0, date: '2024-01-11' },
-    { id: '6', weight: 73.5, bodyFat: 19.2, date: '2024-01-10' },
-    { id: '7', weight: 73.8, bodyFat: 19.5, date: '2024-01-09' }
+    { id: '1', weight: 72.5, bodyFat: 18.2, date: '2024-01-15', week: '2024-W03' },
+    { id: '2', weight: 72.8, bodyFat: 18.5, date: '2024-01-08', week: '2024-W02' },
+    { id: '3', weight: 73.1, bodyFat: 18.8, date: '2024-01-01', week: '2024-W01' },
+    { id: '4', weight: 73.0, bodyFat: 18.6, date: '2023-12-25', week: '2023-W52' },
+    { id: '5', weight: 73.3, bodyFat: 19.0, date: '2023-12-18', week: '2023-W51' },
+    { id: '6', weight: 73.5, bodyFat: 19.2, date: '2023-12-11', week: '2023-W50' },
+    { id: '7', weight: 73.8, bodyFat: 19.5, date: '2023-12-04', week: '2023-W49' }
   ]);
 
   const [fitnessGoal, setFitnessGoal] = useState<FitnessGoal>({
@@ -93,9 +104,28 @@ const BodyTracker: React.FC = () => {
   const [editingWorkout, setEditingWorkout] = useState<WorkoutItem | null>(null);
   const [editingMeal, setEditingMeal] = useState<CalorieEntry | null>(null);
   const [editingWeight, setEditingWeight] = useState<WeightEntry | null>(null);
-  const [newWorkout, setNewWorkout] = useState('');
+  const [newWorkout, setNewWorkout] = useState({
+    name: '',
+    repetitions: '',
+    duration_minutes: '',
+    hasRepetitions: false,
+    hasDuration: false
+  });
   const [newMeal, setNewMeal] = useState({ category: 'Sarapan', amount: '', description: '' });
   const [newWeight, setNewWeight] = useState({ weight: '', bodyFat: '' });
+  const [activeTimer, setActiveTimer] = useState<string | null>(null);
+  const [timerSeconds, setTimerSeconds] = useState(0);
+
+  // Timer effect
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (activeTimer) {
+      interval = setInterval(() => {
+        setTimerSeconds(prev => prev + 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [activeTimer]);
 
   // Calculate statistics
   const completedWorkouts = workouts.filter(w => w.completed).length;
@@ -112,6 +142,32 @@ const BodyTracker: React.FC = () => {
 
   const weeklyWorkouts = workouts.filter(w => w.completed).length;
 
+  // Helper functions
+  const formatTime = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const getWeekString = (date: Date): string => {
+    const year = date.getFullYear();
+    const week = getWeekNumber(date);
+    return `${year}-W${week.toString().padStart(2, '0')}`;
+  };
+
+  const getWeekNumber = (date: Date): number => {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  };
+
   // Handle functions
   const toggleWorkout = (id: string) => {
     const workout = workouts.find(w => w.id === id);
@@ -126,23 +182,104 @@ const BodyTracker: React.FC = () => {
     }
   };
 
+  const startTimer = (workoutId: string) => {
+    const workout = workouts.find(w => w.id === workoutId);
+    if (!workout || !workout.duration_minutes) return;
+
+    if (activeTimer && activeTimer !== workoutId) {
+      pauseTimer(activeTimer);
+    }
+
+    setWorkouts(workouts.map(w => 
+      w.id === workoutId 
+        ? { ...w, timer_start_time: new Date().toISOString(), is_timer_active: true }
+        : { ...w, is_timer_active: false }
+    ));
+
+    setActiveTimer(workoutId);
+    setTimerSeconds(0);
+  };
+
+  const pauseTimer = (workoutId: string) => {
+    const workout = workouts.find(w => w.id === workoutId);
+    if (!workout) return;
+
+    const additionalMinutes = Math.round((timerSeconds / 60) * 100) / 100;
+    const newActualMinutes = Math.round(((workout.actual_minutes || 0) + additionalMinutes) * 100) / 100;
+
+    setWorkouts(workouts.map(w => 
+      w.id === workoutId 
+        ? { 
+            ...w, 
+            actual_minutes: newActualMinutes,
+            is_timer_active: false,
+            timer_start_time: undefined
+          }
+        : w
+    ));
+
+    setActiveTimer(null);
+    setTimerSeconds(0);
+  };
+
+  const finishWorkout = (workoutId: string) => {
+    const workout = workouts.find(w => w.id === workoutId);
+    if (!workout) return;
+
+    let finalActualMinutes = workout.actual_minutes || 0;
+    
+    if (activeTimer === workoutId) {
+      const additionalMinutes = Math.round((timerSeconds / 60) * 100) / 100;
+      finalActualMinutes = Math.round((finalActualMinutes + additionalMinutes) * 100) / 100;
+    }
+
+    setWorkouts(workouts.map(w => 
+      w.id === workoutId 
+        ? { 
+            ...w, 
+            completed: true,
+            actual_minutes: finalActualMinutes,
+            is_timer_active: false,
+            timer_start_time: undefined
+          }
+        : w
+    ));
+
+    if (activeTimer === workoutId) {
+      setActiveTimer(null);
+      setTimerSeconds(0);
+    }
+
+    showSuccess('Workout Selesai! 💪', `${workout.name} berhasil diselesaikan!`);
+  };
+
   const editWorkout = (workout: WorkoutItem) => {
     setEditingWorkout(workout);
-    setNewWorkout(workout.name);
+    setNewWorkout({
+      name: workout.name,
+      repetitions: workout.repetitions?.toString() || '',
+      duration_minutes: workout.duration_minutes?.toString() || '',
+      hasRepetitions: !!workout.repetitions,
+      hasDuration: !!workout.duration_minutes
+    });
     setShowAddWorkout(true);
   };
 
   const updateWorkout = () => {
-    if (!editingWorkout || !newWorkout.trim()) return;
+    if (!editingWorkout || !newWorkout.name.trim()) return;
+    
+    const updatedWorkout: WorkoutItem = {
+      ...editingWorkout,
+      name: newWorkout.name.trim(),
+      repetitions: newWorkout.hasRepetitions && newWorkout.repetitions ? parseInt(newWorkout.repetitions) : undefined,
+      duration_minutes: newWorkout.hasDuration && newWorkout.duration_minutes ? parseInt(newWorkout.duration_minutes) : undefined
+    };
     
     setWorkouts(workouts.map(workout => 
-      workout.id === editingWorkout.id 
-        ? { ...workout, name: newWorkout.trim() }
-        : workout
+      workout.id === editingWorkout.id ? updatedWorkout : workout
     ));
-    setEditingWorkout(null);
-    setNewWorkout('');
-    setShowAddWorkout(false);
+    
+    cancelEdit();
     showSuccess('Workout Diperbarui', 'Workout berhasil diperbarui!');
   };
 
@@ -166,18 +303,19 @@ const BodyTracker: React.FC = () => {
   };
 
   const addWorkout = () => {
-    if (!newWorkout.trim()) return;
+    if (!newWorkout.name.trim()) return;
     
     const workout: WorkoutItem = {
       id: Date.now().toString(),
-      name: newWorkout.trim(),
+      name: newWorkout.name.trim(),
+      repetitions: newWorkout.hasRepetitions && newWorkout.repetitions ? parseInt(newWorkout.repetitions) : undefined,
+      duration_minutes: newWorkout.hasDuration && newWorkout.duration_minutes ? parseInt(newWorkout.duration_minutes) : undefined,
       completed: false,
       date: new Date().toISOString().split('T')[0]
     };
     
     setWorkouts([...workouts, workout]);
-    setNewWorkout('');
-    setShowAddWorkout(false);
+    cancelEdit();
     showSuccess('Workout Ditambahkan', `${workout.name} berhasil ditambahkan ke daftar!`);
   };
 
@@ -280,7 +418,7 @@ const BodyTracker: React.FC = () => {
 
     showConfirmation(
       'Hapus Data Berat',
-      `Apakah Anda yakin ingin menghapus data berat ${weight.weight} kg pada ${new Date(weight.date).toLocaleDateString()}?`,
+      `Apakah Anda yakin ingin menghapus data berat ${weight.weight} kg pada minggu ${weight.week}?`,
       () => {
         setWeightEntries(weightEntries.filter(w => w.id !== id));
         showSuccess('Data Berat Dihapus', 'Data berat badan berhasil dihapus');
@@ -296,11 +434,13 @@ const BodyTracker: React.FC = () => {
   const addWeight = () => {
     if (!newWeight.weight) return;
     
+    const currentDate = new Date();
     const weight: WeightEntry = {
       id: Date.now().toString(),
       weight: parseFloat(newWeight.weight),
       bodyFat: newWeight.bodyFat ? parseFloat(newWeight.bodyFat) : undefined,
-      date: new Date().toISOString().split('T')[0]
+      date: currentDate.toISOString().split('T')[0],
+      week: getWeekString(currentDate)
     };
     
     setWeightEntries([weight, ...weightEntries]);
@@ -312,7 +452,6 @@ const BodyTracker: React.FC = () => {
   const updateGoal = () => {
     setFitnessGoal({
       ...fitnessGoal,
-      currentWeight: currentWeight,
       lastUpdate: new Date().toISOString().split('T')[0]
     });
     setShowEditGoal(false);
@@ -323,7 +462,13 @@ const BodyTracker: React.FC = () => {
     setEditingWorkout(null);
     setEditingMeal(null);
     setEditingWeight(null);
-    setNewWorkout('');
+    setNewWorkout({
+      name: '',
+      repetitions: '',
+      duration_minutes: '',
+      hasRepetitions: false,
+      hasDuration: false
+    });
     setNewMeal({ category: 'Sarapan', amount: '', description: '' });
     setNewWeight({ weight: '', bodyFat: '' });
     setShowAddWorkout(false);
@@ -398,14 +543,74 @@ const BodyTracker: React.FC = () => {
                   >
                     {workout.completed && <Check className="w-3 h-3" />}
                   </button>
-                  <span className={`flex-1 text-sm ${workout.completed ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
-                    {workout.name}
-                  </span>
-                  <span className="text-xs text-gray-500">💪</span>
+                  
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-2">
+                      <span className={`text-sm font-medium ${workout.completed ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
+                        {workout.name}
+                      </span>
+                      {workout.repetitions && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                          {workout.repetitions}x
+                        </span>
+                      )}
+                      {workout.duration_minutes && (
+                        <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+                          {workout.duration_minutes}m
+                        </span>
+                      )}
+                    </div>
+                    
+                    {/* Timer Display */}
+                    {activeTimer === workout.id && (
+                      <div className="mt-1 text-blue-600 font-medium text-xs animate-pulse">
+                        ⏱️ {formatTime(timerSeconds)}
+                      </div>
+                    )}
+                    
+                    {/* Actual Time Display */}
+                    {workout.actual_minutes && workout.actual_minutes > 0 && (
+                      <div className="mt-1 text-green-600 text-xs">
+                        Actual: {workout.actual_minutes}m
+                      </div>
+                    )}
+                  </div>
                 </div>
                 
                 {/* Action Buttons */}
                 <div className="flex items-center space-x-1 ml-3">
+                  {/* Timer Controls */}
+                  {workout.duration_minutes && !workout.completed && (
+                    <>
+                      {activeTimer === workout.id ? (
+                        <>
+                          <button
+                            onClick={() => pauseTimer(workout.id)}
+                            className="p-1.5 text-orange-500 hover:bg-orange-50 rounded-lg transition-all duration-200 hover-scale"
+                            title="Pause timer"
+                          >
+                            <Pause className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => finishWorkout(workout.id)}
+                            className="p-1.5 text-green-500 hover:bg-green-50 rounded-lg transition-all duration-200 hover-scale"
+                            title="Finish workout"
+                          >
+                            <Square className="w-3 h-3" />
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => startTimer(workout.id)}
+                          className="p-1.5 text-green-500 hover:bg-green-50 rounded-lg transition-all duration-200 hover-scale"
+                          title="Start timer"
+                        >
+                          <Play className="w-3 h-3" />
+                        </button>
+                      )}
+                    </>
+                  )}
+                  
                   <button
                     onClick={() => editWorkout(workout)}
                     className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all duration-200 hover-scale"
@@ -434,18 +639,79 @@ const BodyTracker: React.FC = () => {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">
                   {editingWorkout ? 'Edit Workout' : 'Add New Workout'}
                 </h3>
-                <input
-                  type="text"
-                  value={newWorkout}
-                  onChange={(e) => setNewWorkout(e.target.value)}
-                  placeholder="e.g., Push-up 3x15, Jogging 20 menit"
-                  className="input mb-4"
-                  autoFocus
-                />
-                <div className="flex space-x-3">
+                
+                <div className="space-y-4">
+                  {/* Workout Name */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Nama Workout *
+                    </label>
+                    <input
+                      type="text"
+                      value={newWorkout.name}
+                      onChange={(e) => setNewWorkout({ ...newWorkout, name: e.target.value })}
+                      placeholder="e.g., Push-up, Jogging, Plank"
+                      className="input"
+                      autoFocus
+                    />
+                  </div>
+
+                  {/* Repetitions Checkbox and Input */}
+                  <div>
+                    <label className="flex items-center space-x-2 mb-2">
+                      <input
+                        type="checkbox"
+                        checked={newWorkout.hasRepetitions}
+                        onChange={(e) => setNewWorkout({ ...newWorkout, hasRepetitions: e.target.checked })}
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      />
+                      <span className="text-sm font-medium text-gray-700">Ada Repetisi</span>
+                    </label>
+                    {newWorkout.hasRepetitions && (
+                      <input
+                        type="number"
+                        value={newWorkout.repetitions}
+                        onChange={(e) => setNewWorkout({ ...newWorkout, repetitions: e.target.value })}
+                        placeholder="Jumlah repetisi"
+                        className="input"
+                        min="1"
+                      />
+                    )}
+                  </div>
+
+                  {/* Duration Checkbox and Input */}
+                  <div>
+                    <label className="flex items-center space-x-2 mb-2">
+                      <input
+                        type="checkbox"
+                        checked={newWorkout.hasDuration}
+                        onChange={(e) => setNewWorkout({ ...newWorkout, hasDuration: e.target.checked })}
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      />
+                      <span className="text-sm font-medium text-gray-700">Ada Waktu (Timer)</span>
+                    </label>
+                    {newWorkout.hasDuration && (
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="number"
+                          value={newWorkout.duration_minutes}
+                          onChange={(e) => setNewWorkout({ ...newWorkout, duration_minutes: e.target.value })}
+                          placeholder="Durasi"
+                          className="input flex-1"
+                          min="1"
+                        />
+                        <span className="text-sm text-gray-500">menit</span>
+                        <Timer className="w-4 h-4 text-purple-500" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex space-x-3 mt-6">
                   <button 
                     onClick={editingWorkout ? updateWorkout : addWorkout} 
                     className="btn-primary flex-1"
+                    disabled={!newWorkout.name.trim()}
                   >
                     <Save className="w-4 h-4 mr-2" />
                     {editingWorkout ? 'Update' : 'Add'} Workout
@@ -605,28 +871,28 @@ const BodyTracker: React.FC = () => {
         )}
       </div>
 
-      {/* ⚖️ 3. BODY PROGRESS CHART */}
+      {/* ⚖️ 3. BODY PROGRESS CHART - WEEKLY */}
       <div className="card">
         <div className="card-header">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 bg-purple-500 rounded-xl flex items-center justify-center">
               <Scale className="w-4 h-4 text-white" />
             </div>
-            <h2 className="card-title">Body Progress Chart</h2>
+            <h2 className="card-title">Weekly Body Progress</h2>
           </div>
           <button
             onClick={() => setShowAddWeight(true)}
             className="btn-primary"
           >
             <Plus className="w-4 h-4 mr-2" />
-            Add Weight Entry
+            Add Weekly Entry
           </button>
         </div>
 
-        {/* Weight Chart Simulation */}
+        {/* Weight Chart Simulation - Weekly */}
         <div className="mb-4 p-4 bg-gray-50 rounded-xl">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-medium text-gray-700">Berat Badan (7 hari terakhir)</span>
+            <span className="text-sm font-medium text-gray-700">Berat Badan (7 minggu terakhir)</span>
             <TrendingUp className="w-4 h-4 text-blue-600" />
           </div>
           
@@ -641,16 +907,16 @@ const BodyTracker: React.FC = () => {
                     style={{ height: `${Math.max(height, 10)}%` }}
                   ></div>
                   <span className="text-xs text-gray-600 mt-1">{entry.weight}kg</span>
-                  <span className="text-xs text-gray-500">{new Date(entry.date).getDate()}</span>
+                  <span className="text-xs text-gray-500">{entry.week}</span>
                 </div>
               );
             })}
           </div>
         </div>
 
-        {/* Weight Log */}
+        {/* Weight Log - Weekly */}
         <div>
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Log 7 Hari Terakhir</h4>
+          <h4 className="text-sm font-medium text-gray-700 mb-2">Log 7 Minggu Terakhir</h4>
           <div className="space-y-2">
             {weightEntries.slice(0, 7).map((entry, index) => (
               <div key={entry.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
@@ -659,6 +925,7 @@ const BodyTracker: React.FC = () => {
                   {entry.bodyFat && (
                     <span className="text-xs text-gray-600 ml-2">({entry.bodyFat}% fat)</span>
                   )}
+                  <div className="text-xs text-gray-500">Week {entry.week}</div>
                 </div>
                 <div className="flex items-center space-x-2">
                   <span className="text-xs text-gray-500">{new Date(entry.date).toLocaleDateString()}</span>
@@ -690,7 +957,7 @@ const BodyTracker: React.FC = () => {
             <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
               <div className="p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                  {editingWeight ? 'Edit Weight Entry' : 'Add Weight Entry'}
+                  {editingWeight ? 'Edit Weekly Weight Entry' : 'Add Weekly Weight Entry'}
                 </h3>
                 <div className="space-y-3">
                   <input
@@ -754,7 +1021,7 @@ const BodyTracker: React.FC = () => {
           </div>
           <div className="p-3 bg-green-50 rounded-xl border border-green-200">
             <div className="text-sm font-medium text-green-700">Berat Saat Ini</div>
-            <div className="text-xl font-bold text-green-600">{currentWeight} kg</div>
+            <div className="text-xl font-bold text-green-600">{fitnessGoal.currentWeight} kg</div>
           </div>
           <div className="p-3 bg-purple-50 rounded-xl border border-purple-200">
             <div className="text-sm font-medium text-purple-700">Mode</div>
@@ -775,23 +1042,46 @@ const BodyTracker: React.FC = () => {
               <div className="p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Edit Fitness Goal</h3>
                 <div className="space-y-3">
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={fitnessGoal.targetWeight}
-                    onChange={(e) => setFitnessGoal({ ...fitnessGoal, targetWeight: parseFloat(e.target.value) || 0 })}
-                    placeholder="Target weight (kg)"
-                    className="input"
-                  />
-                  <select
-                    value={fitnessGoal.mode}
-                    onChange={(e) => setFitnessGoal({ ...fitnessGoal, mode: e.target.value as any })}
-                    className="input"
-                  >
-                    <option value="cutting">Cutting (Turun berat)</option>
-                    <option value="bulking">Bulking (Naik berat)</option>
-                    <option value="maintenance">Maintenance (Pertahankan)</option>
-                  </select>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Target Weight (kg)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={fitnessGoal.targetWeight}
+                      onChange={(e) => setFitnessGoal({ ...fitnessGoal, targetWeight: parseFloat(e.target.value) || 0 })}
+                      placeholder="Target weight (kg)"
+                      className="input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Current Weight (kg)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={fitnessGoal.currentWeight}
+                      onChange={(e) => setFitnessGoal({ ...fitnessGoal, currentWeight: parseFloat(e.target.value) || 0 })}
+                      placeholder="Current weight (kg)"
+                      className="input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Mode
+                    </label>
+                    <select
+                      value={fitnessGoal.mode}
+                      onChange={(e) => setFitnessGoal({ ...fitnessGoal, mode: e.target.value as any })}
+                      className="input"
+                    >
+                      <option value="cutting">Cutting (Turun berat)</option>
+                      <option value="bulking">Bulking (Naik berat)</option>
+                      <option value="maintenance">Maintenance (Pertahankan)</option>
+                    </select>
+                  </div>
                 </div>
                 <div className="flex space-x-3 mt-4">
                   <button onClick={updateGoal} className="btn-primary flex-1">
@@ -828,7 +1118,7 @@ const BodyTracker: React.FC = () => {
             <div className="stat-value">
               {weightChange > 0 ? '+' : ''}{weightChange} kg
             </div>
-            <div className="stat-label">Perubahan 7 Hari</div>
+            <div className="stat-label">Perubahan 7 Minggu</div>
           </div>
           <div className="stat-card stat-card-success">
             <div className="stat-value">{weeklyWorkouts}</div>
