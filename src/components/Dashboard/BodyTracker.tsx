@@ -18,7 +18,8 @@ import {
   Play,
   Pause,
   Square,
-  Timer
+  Timer,
+  Calculator
 } from 'lucide-react';
 import { useNotifications } from '../../hooks/useNotifications';
 
@@ -32,6 +33,7 @@ interface WorkoutItem {
   timer_start_time?: string;
   is_timer_active?: boolean;
   actual_minutes?: number;
+  calories_burned?: number; // Auto-calculated calories
 }
 
 interface CalorieEntry {
@@ -41,6 +43,7 @@ interface CalorieEntry {
   amount: number;
   description: string;
   date: string;
+  auto_generated?: boolean; // Flag for auto-generated entries
 }
 
 interface WeightEntry {
@@ -58,14 +61,57 @@ interface FitnessGoal {
   lastUpdate: string;
 }
 
+// Calorie calculation database for different exercises
+const EXERCISE_CALORIES_PER_MINUTE = {
+  // Cardio exercises (calories per minute for 70kg person)
+  'jogging': 10,
+  'running': 15,
+  'cycling': 8,
+  'swimming': 12,
+  'walking': 4,
+  'dancing': 6,
+  'aerobics': 7,
+  'jumping rope': 12,
+  'elliptical': 9,
+  'rowing': 11,
+  
+  // Strength training (calories per minute)
+  'push-up': 8,
+  'pull-up': 10,
+  'squat': 8,
+  'deadlift': 9,
+  'bench press': 7,
+  'plank': 3,
+  'burpees': 12,
+  'mountain climbers': 10,
+  'lunges': 7,
+  'sit-ups': 5,
+  
+  // Default for unknown exercises
+  'default': 6
+};
+
+const CALORIES_PER_REP = {
+  // Calories burned per repetition for strength exercises
+  'push-up': 0.5,
+  'pull-up': 1.0,
+  'squat': 0.4,
+  'sit-ups': 0.3,
+  'burpees': 1.5,
+  'jumping jacks': 0.2,
+  'lunges': 0.4,
+  'mountain climbers': 0.3,
+  'default': 0.4
+};
+
 const BodyTracker: React.FC = () => {
   const { showSuccess, showError } = useNotifications();
   
   const [workouts, setWorkouts] = useState<WorkoutItem[]>([
-    { id: '1', name: 'Push-up', repetitions: 15, completed: true, date: '2024-01-15' },
-    { id: '2', name: 'Jogging', duration_minutes: 20, completed: true, date: '2024-01-15' },
+    { id: '1', name: 'Push-up', repetitions: 15, completed: true, date: '2024-01-15', calories_burned: 7.5 },
+    { id: '2', name: 'Jogging', duration_minutes: 20, completed: true, date: '2024-01-15', actual_minutes: 20, calories_burned: 200 },
     { id: '3', name: 'Plank', duration_minutes: 1, completed: false, date: '2024-01-15' },
-    { id: '4', name: 'Squat', repetitions: 20, completed: true, date: '2024-01-15' },
+    { id: '4', name: 'Squat', repetitions: 20, completed: true, date: '2024-01-15', calories_burned: 8 },
     { id: '5', name: 'Pull-up', repetitions: 8, completed: false, date: '2024-01-15' }
   ]);
 
@@ -75,9 +121,8 @@ const BodyTracker: React.FC = () => {
     { id: '3', type: 'in', category: 'Snack', amount: 200, description: 'Pisang + kacang', date: '2024-01-15' }
   ]);
 
-  const [caloriesOut, setCaloriesOut] = useState<CalorieEntry[]>([
-    { id: '1', type: 'out', category: 'Workout', amount: 320, description: 'Push-up + Jogging + Squat', date: '2024-01-15' }
-  ]);
+  // Auto-generated calories out based on completed workouts
+  const [caloriesOut, setCaloriesOut] = useState<CalorieEntry[]>([]);
 
   // Weekly weight entries with proper state management
   const [weightEntries, setWeightEntries] = useState<WeightEntry[]>([
@@ -101,6 +146,7 @@ const BodyTracker: React.FC = () => {
   const [showAddMeal, setShowAddMeal] = useState(false);
   const [showAddWeight, setShowAddWeight] = useState(false);
   const [showEditGoal, setShowEditGoal] = useState(false);
+  const [showCalorieCalculator, setShowCalorieCalculator] = useState(false);
   const [editingWorkout, setEditingWorkout] = useState<WorkoutItem | null>(null);
   const [editingMeal, setEditingMeal] = useState<CalorieEntry | null>(null);
   const [editingWeight, setEditingWeight] = useState<WeightEntry | null>(null);
@@ -129,6 +175,11 @@ const BodyTracker: React.FC = () => {
     name: ''
   });
 
+  // Auto-generate calories out when workouts change
+  useEffect(() => {
+    generateCaloriesOut();
+  }, [workouts]);
+
   // Timer effect
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -149,6 +200,64 @@ const BodyTracker: React.FC = () => {
       }));
     }
   }, [weightEntries]);
+
+  // Calculate calories burned for a workout
+  const calculateCaloriesBurned = (workout: WorkoutItem): number => {
+    const exerciseName = workout.name.toLowerCase();
+    const userWeight = fitnessGoal.currentWeight; // Use current weight for calculation
+    const weightFactor = userWeight / 70; // Adjust for user's weight (base: 70kg)
+
+    let calories = 0;
+
+    // Find matching exercise in database
+    const exerciseKey = Object.keys(EXERCISE_CALORIES_PER_MINUTE).find(key => 
+      exerciseName.includes(key)
+    ) || 'default';
+
+    // Calculate based on duration
+    if (workout.duration_minutes && workout.actual_minutes) {
+      const caloriesPerMinute = EXERCISE_CALORIES_PER_MINUTE[exerciseKey] * weightFactor;
+      calories = caloriesPerMinute * workout.actual_minutes;
+    } else if (workout.duration_minutes) {
+      const caloriesPerMinute = EXERCISE_CALORIES_PER_MINUTE[exerciseKey] * weightFactor;
+      calories = caloriesPerMinute * workout.duration_minutes;
+    }
+
+    // Calculate based on repetitions
+    if (workout.repetitions) {
+      const repKey = Object.keys(CALORIES_PER_REP).find(key => 
+        exerciseName.includes(key)
+      ) || 'default';
+      const caloriesPerRep = CALORIES_PER_REP[repKey] * weightFactor;
+      calories += caloriesPerRep * workout.repetitions;
+    }
+
+    return Math.round(calories * 10) / 10; // Round to 1 decimal place
+  };
+
+  // Generate calories out entries from completed workouts
+  const generateCaloriesOut = () => {
+    const completedWorkouts = workouts.filter(w => w.completed);
+    const autoCaloriesOut: CalorieEntry[] = [];
+
+    completedWorkouts.forEach(workout => {
+      if (workout.calories_burned && workout.calories_burned > 0) {
+        autoCaloriesOut.push({
+          id: `auto-${workout.id}`,
+          type: 'out',
+          category: 'Workout',
+          amount: Math.round(workout.calories_burned),
+          description: workout.name,
+          date: workout.date,
+          auto_generated: true
+        });
+      }
+    });
+
+    // Add manual calorie entries (non-auto-generated)
+    const manualEntries = caloriesOut.filter(entry => !entry.auto_generated);
+    setCaloriesOut([...autoCaloriesOut, ...manualEntries]);
+  };
 
   // Calculate statistics
   const completedWorkouts = workouts.filter(w => w.completed).length;
@@ -252,12 +361,21 @@ const BodyTracker: React.FC = () => {
     const workout = workouts.find(w => w.id === id);
     if (!workout) return;
 
+    const updatedWorkout = { ...workout, completed: !workout.completed };
+    
+    // Calculate calories when completing workout
+    if (!workout.completed) {
+      updatedWorkout.calories_burned = calculateCaloriesBurned(updatedWorkout);
+    } else {
+      updatedWorkout.calories_burned = 0;
+    }
+
     setWorkouts(workouts.map(w => 
-      w.id === id ? { ...w, completed: !w.completed } : w
+      w.id === id ? updatedWorkout : w
     ));
 
     if (!workout.completed) {
-      showSuccess('Workout Selesai! 💪', `${workout.name} berhasil diselesaikan!`);
+      showSuccess('Workout Selesai! 💪', `${workout.name} berhasil diselesaikan! Kalori terbakar: ${updatedWorkout.calories_burned} kcal`);
     }
   };
 
@@ -312,16 +430,19 @@ const BodyTracker: React.FC = () => {
       finalActualMinutes = Math.round((finalActualMinutes + additionalMinutes) * 100) / 100;
     }
 
+    const updatedWorkout = {
+      ...workout,
+      completed: true,
+      actual_minutes: finalActualMinutes,
+      is_timer_active: false,
+      timer_start_time: undefined
+    };
+
+    // Calculate calories burned
+    updatedWorkout.calories_burned = calculateCaloriesBurned(updatedWorkout);
+
     setWorkouts(workouts.map(w => 
-      w.id === workoutId 
-        ? { 
-            ...w, 
-            completed: true,
-            actual_minutes: finalActualMinutes,
-            is_timer_active: false,
-            timer_start_time: undefined
-          }
-        : w
+      w.id === workoutId ? updatedWorkout : w
     ));
 
     if (activeTimer === workoutId) {
@@ -329,7 +450,7 @@ const BodyTracker: React.FC = () => {
       setTimerSeconds(0);
     }
 
-    showSuccess('Workout Selesai! 💪', `${workout.name} berhasil diselesaikan!`);
+    showSuccess('Workout Selesai! 💪', `${workout.name} berhasil diselesaikan! Kalori terbakar: ${updatedWorkout.calories_burned} kcal`);
   };
 
   const editWorkout = (workout: WorkoutItem) => {
@@ -353,6 +474,11 @@ const BodyTracker: React.FC = () => {
       repetitions: newWorkout.hasRepetitions && newWorkout.repetitions ? parseInt(newWorkout.repetitions) : undefined,
       duration_minutes: newWorkout.hasDuration && newWorkout.duration_minutes ? parseInt(newWorkout.duration_minutes) : undefined
     };
+
+    // Recalculate calories if workout is completed
+    if (updatedWorkout.completed) {
+      updatedWorkout.calories_burned = calculateCaloriesBurned(updatedWorkout);
+    }
     
     setWorkouts(workouts.map(workout => 
       workout.id === editingWorkout.id ? updatedWorkout : workout
@@ -587,6 +713,11 @@ const BodyTracker: React.FC = () => {
                             {workout.duration_minutes}m
                           </span>
                         )}
+                        {workout.calories_burned && workout.calories_burned > 0 && (
+                          <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">
+                            🔥 {workout.calories_burned} kcal
+                          </span>
+                        )}
                       </div>
                     </div>
                     
@@ -736,6 +867,19 @@ const BodyTracker: React.FC = () => {
                       </div>
                     )}
                   </div>
+
+                  {/* Calorie Estimation Preview */}
+                  {(newWorkout.hasRepetitions || newWorkout.hasDuration) && newWorkout.name && (
+                    <div className="p-3 bg-orange-50 rounded-lg border border-orange-200">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <Flame className="w-4 h-4 text-orange-600" />
+                        <span className="text-sm font-medium text-orange-700">Estimasi Kalori Terbakar</span>
+                      </div>
+                      <p className="text-xs text-orange-600">
+                        Kalori akan dihitung otomatis berdasarkan jenis exercise, durasi, dan berat badan Anda ({fitnessGoal.currentWeight} kg)
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex space-x-3 mt-6">
@@ -771,14 +915,23 @@ const BodyTracker: React.FC = () => {
               </p>
             </div>
           </div>
-          <button
-            onClick={() => setShowAddMeal(true)}
-            className="btn-primary text-xs lg:text-sm px-2 lg:px-3 py-1.5 lg:py-2 flex-shrink-0 ml-2"
-          >
-            <Plus className="w-3 h-3 lg:w-4 lg:h-4 mr-1 lg:mr-2" />
-            <span className="hidden sm:inline">Add Meal</span>
-            <span className="sm:hidden">Add</span>
-          </button>
+          <div className="flex items-center space-x-1 flex-shrink-0 ml-2">
+            <button
+              onClick={() => setShowCalorieCalculator(true)}
+              className="btn-secondary text-xs lg:text-sm px-2 lg:px-3 py-1.5 lg:py-2"
+              title="Calorie Calculator"
+            >
+              <Calculator className="w-3 h-3 lg:w-4 lg:h-4" />
+            </button>
+            <button
+              onClick={() => setShowAddMeal(true)}
+              className="btn-primary text-xs lg:text-sm px-2 lg:px-3 py-1.5 lg:py-2"
+            >
+              <Plus className="w-3 h-3 lg:w-4 lg:h-4 mr-1 lg:mr-2" />
+              <span className="hidden sm:inline">Add Meal</span>
+              <span className="sm:hidden">Add</span>
+            </button>
+          </div>
         </div>
 
         {/* Calorie Summary */}
@@ -797,7 +950,7 @@ const BodyTracker: React.FC = () => {
               <Flame className="w-3 h-3 lg:w-4 lg:h-4 text-orange-600" />
             </div>
             <div className="text-lg lg:text-xl font-bold text-orange-600">{totalCaloriesOut}</div>
-            <div className="text-xs text-orange-600">kcal</div>
+            <div className="text-xs text-orange-600">kcal (auto)</div>
           </div>
         </div>
 
@@ -816,6 +969,26 @@ const BodyTracker: React.FC = () => {
             ></div>
           </div>
         </div>
+
+        {/* Calories Out Breakdown */}
+        {caloriesOut.length > 0 && (
+          <div className="mb-4 p-3 bg-orange-50 rounded-lg border border-orange-200">
+            <h4 className="text-xs lg:text-sm font-medium text-orange-700 mb-2 flex items-center">
+              <Flame className="w-4 h-4 mr-1" />
+              Kalori Terbakar Hari Ini
+            </h4>
+            <div className="space-y-1">
+              {caloriesOut.map((entry) => (
+                <div key={entry.id} className="flex items-center justify-between text-xs">
+                  <span className="text-orange-600">
+                    {entry.auto_generated ? '🔥' : '📝'} {entry.description}
+                  </span>
+                  <span className="font-medium text-orange-700">{entry.amount} kcal</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Recent Meals */}
         <div>
@@ -850,6 +1023,78 @@ const BodyTracker: React.FC = () => {
             ))}
           </div>
         </div>
+
+        {/* Calorie Calculator Modal */}
+        {showCalorieCalculator && (
+          <div className="fixed inset-0 bg-black bg-opacity-25 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+              <div className="p-4 lg:p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base lg:text-lg font-semibold text-gray-900">
+                    Calorie Calculator Info
+                  </h3>
+                  <button
+                    onClick={() => setShowCalorieCalculator(false)}
+                    className="p-1 text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <h4 className="font-medium text-blue-900 mb-2">🔥 Cara Perhitungan Kalori Keluar</h4>
+                    <ul className="text-sm text-blue-700 space-y-1">
+                      <li>• <strong>Otomatis</strong>: Berdasarkan workout yang diselesaikan</li>
+                      <li>• <strong>Durasi</strong>: Kalori per menit × waktu aktual</li>
+                      <li>• <strong>Repetisi</strong>: Kalori per rep × jumlah repetisi</li>
+                      <li>• <strong>Berat Badan</strong>: Disesuaikan dengan berat Anda ({fitnessGoal.currentWeight} kg)</li>
+                    </ul>
+                  </div>
+
+                  <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                    <h4 className="font-medium text-green-900 mb-2">💪 Contoh Kalori per Menit</h4>
+                    <div className="grid grid-cols-2 gap-2 text-sm text-green-700">
+                      <div>• Jogging: ~10 kcal/min</div>
+                      <div>• Push-up: ~8 kcal/min</div>
+                      <div>• Running: ~15 kcal/min</div>
+                      <div>• Squat: ~8 kcal/min</div>
+                      <div>• Swimming: ~12 kcal/min</div>
+                      <div>• Plank: ~3 kcal/min</div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-orange-50 rounded-lg border border-orange-200">
+                    <h4 className="font-medium text-orange-900 mb-2">🎯 Contoh Kalori per Repetisi</h4>
+                    <div className="grid grid-cols-2 gap-2 text-sm text-orange-700">
+                      <div>• Push-up: ~0.5 kcal/rep</div>
+                      <div>• Pull-up: ~1.0 kcal/rep</div>
+                      <div>• Squat: ~0.4 kcal/rep</div>
+                      <div>• Burpees: ~1.5 kcal/rep</div>
+                      <div>• Sit-ups: ~0.3 kcal/rep</div>
+                      <div>• Lunges: ~0.4 kcal/rep</div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                    <h4 className="font-medium text-purple-900 mb-2">⚖️ Faktor Berat Badan</h4>
+                    <p className="text-sm text-purple-700">
+                      Kalori disesuaikan dengan berat badan Anda. Semakin berat, semakin banyak kalori yang terbakar.
+                      Base calculation: 70kg person.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setShowCalorieCalculator(false)}
+                  className="w-full btn-primary mt-4"
+                >
+                  Mengerti
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Add/Edit Meal Modal */}
         {showAddMeal && (
