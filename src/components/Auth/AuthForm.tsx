@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, UserPlus, Loader2, AlertCircle } from 'lucide-react';
+import { LogIn, UserPlus, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 
 const AuthForm: React.FC = () => {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -9,13 +9,14 @@ const AuthForm: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   
   const { signUp, signIn } = useAuth();
   const navigate = useNavigate();
 
   const getErrorMessage = (error: any) => {
     if (error?.message?.includes('Invalid login credentials')) {
-      return 'Invalid email or password. Please check your credentials and try again.';
+      return 'Invalid email or password. Please check your credentials and try again. If you just signed up, make sure to confirm your email first.';
     }
     if (error?.message?.includes('Email not confirmed')) {
       return 'Please check your email and click the confirmation link before signing in.';
@@ -26,6 +27,12 @@ const AuthForm: React.FC = () => {
     if (error?.message?.includes('Password should be at least')) {
       return 'Password must be at least 6 characters long.';
     }
+    if (error?.message?.includes('Signup requires a valid password')) {
+      return 'Please enter a valid password (at least 6 characters).';
+    }
+    if (error?.message?.includes('Unable to validate email address')) {
+      return 'Please enter a valid email address.';
+    }
     return error?.message || 'An unexpected error occurred. Please try again.';
   };
 
@@ -33,20 +40,44 @@ const AuthForm: React.FC = () => {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setSuccess('');
+
+    // Basic validation
+    if (!email.trim() || !password.trim()) {
+      setError('Please enter both email and password.');
+      setLoading(false);
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters long.');
+      setLoading(false);
+      return;
+    }
 
     try {
       if (isSignUp) {
-        await signUp(email, password);
+        await signUp(email.trim(), password);
+        setSuccess('Account created successfully! Please check your email to confirm your account before signing in.');
         setError('');
+        // Don't navigate immediately after sign up, wait for email confirmation
       } else {
-        await signIn(email, password);
+        await signIn(email.trim(), password);
+        navigate('/');
       }
-      navigate('/');
     } catch (err: any) {
+      console.error('Auth error:', err);
       setError(getErrorMessage(err));
+      setSuccess('');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleModeSwitch = () => {
+    setIsSignUp(!isSignUp);
+    setError('');
+    setSuccess('');
   };
 
   return (
@@ -68,6 +99,13 @@ const AuthForm: React.FC = () => {
               <span>{error}</span>
             </div>
           )}
+
+          {success && (
+            <div className="bg-green-50 border border-green-200 text-green-600 px-3 py-3 rounded-md text-sm flex items-start space-x-2">
+              <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <span>{success}</span>
+            </div>
+          )}
           
           <div className="space-y-4">
             <div>
@@ -84,6 +122,7 @@ const AuthForm: React.FC = () => {
                 onChange={(e) => setEmail(e.target.value)}
                 className="input"
                 placeholder="Enter your email"
+                disabled={loading}
               />
             </div>
             
@@ -95,13 +134,14 @@ const AuthForm: React.FC = () => {
                 id="password"
                 name="password"
                 type="password"
-                autoComplete="current-password"
+                autoComplete={isSignUp ? "new-password" : "current-password"}
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="input"
                 placeholder="Enter your password"
                 minLength={6}
+                disabled={loading}
               />
               {isSignUp && (
                 <p className="mt-1.5 text-xs text-gray-500">
@@ -129,11 +169,9 @@ const AuthForm: React.FC = () => {
           <div className="text-center">
             <button
               type="button"
-              onClick={() => {
-                setIsSignUp(!isSignUp);
-                setError('');
-              }}
+              onClick={handleModeSwitch}
               className="text-sm text-blue-600 hover:text-blue-700 transition-colors duration-150"
+              disabled={loading}
             >
               {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
             </button>
@@ -143,6 +181,14 @@ const AuthForm: React.FC = () => {
             <div className="text-center">
               <p className="text-xs text-gray-500 mt-4">
                 Having trouble signing in? Make sure you've confirmed your email address if you recently signed up.
+              </p>
+            </div>
+          )}
+
+          {isSignUp && (
+            <div className="text-center">
+              <p className="text-xs text-gray-500 mt-4">
+                After signing up, you'll receive an email with a confirmation link. You must click this link before you can sign in.
               </p>
             </div>
           )}

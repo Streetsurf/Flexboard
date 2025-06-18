@@ -70,24 +70,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
+    // Validate inputs
+    if (!email || !password) {
+      throw new Error('Email and password are required');
+    }
+
+    if (password.length < 6) {
+      throw new Error('Password should be at least 6 characters');
+    }
+
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
       password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth`
+      }
     });
-    if (error) throw error;
+
+    if (error) {
+      console.error('Sign up error:', error);
+      throw error;
+    }
+
+    // Check if user needs email confirmation
+    if (data.user && !data.session) {
+      console.log('User created, email confirmation required');
+    }
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
+    // Validate inputs
+    if (!email || !password) {
+      throw new Error('Email and password are required');
+    }
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
       password,
     });
-    if (error) throw error;
+
+    if (error) {
+      console.error('Sign in error:', error);
+      throw error;
+    }
+
+    return data;
   };
 
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    if (error) {
+      console.error('Sign out error:', error);
+      throw error;
+    }
   };
 
   const value = {
