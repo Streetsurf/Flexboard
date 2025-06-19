@@ -1391,9 +1391,9 @@ const BodyTracker: React.FC = () => {
             </div>
           </div>
         </div>
-    )}
-</div>
-);
+      );
+    </div>
+  );
 };
 
 export default BodyTracker;
