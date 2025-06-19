@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 
@@ -54,8 +54,13 @@ export const useGlobalState = (): GlobalStateHook => {
   const [state, setState] = useState<GlobalState>(initialState);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
+  
+  // Use refs to prevent unnecessary re-renders
+  const isInitializedRef = useRef(false);
+  const refreshingRef = useRef(false);
+  const lastUserIdRef = useRef<string | null>(null);
 
-  // Enhanced error handling wrapper
+  // Enhanced error handling wrapper with debouncing
   const withErrorHandling = async <T>(
     operation: () => Promise<T>,
     fallbackValue: T,
@@ -77,9 +82,21 @@ export const useGlobalState = (): GlobalStateHook => {
     }
   };
 
-  // Profile refresh
+  // Optimized state update function to prevent unnecessary re-renders
+  const updateState = useCallback((updater: (prev: GlobalState) => GlobalState) => {
+    setState(prev => {
+      const newState = updater(prev);
+      // Only update if there's actually a change
+      if (JSON.stringify(newState) === JSON.stringify(prev)) {
+        return prev;
+      }
+      return newState;
+    });
+  }, []);
+
+  // Profile refresh with memoization
   const refreshProfile = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || refreshingRef.current) return;
     
     await withErrorHandling(
       async () => {
@@ -91,16 +108,16 @@ export const useGlobalState = (): GlobalStateHook => {
 
         if (error && error.code !== 'PGRST116') throw error;
         
-        setState(prev => ({ ...prev, profile: data }));
+        updateState(prev => ({ ...prev, profile: data }));
       },
       undefined,
       'refreshProfile'
     );
-  }, [user?.id]);
+  }, [user?.id, updateState]);
 
-  // Todos refresh
+  // Todos refresh with memoization
   const refreshTodos = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || refreshingRef.current) return;
     
     await withErrorHandling(
       async () => {
@@ -111,16 +128,16 @@ export const useGlobalState = (): GlobalStateHook => {
           .order('priority_score', { ascending: false });
 
         if (error) throw error;
-        setState(prev => ({ ...prev, todos: data || [] }));
+        updateState(prev => ({ ...prev, todos: data || [] }));
       },
       undefined,
       'refreshTodos'
     );
-  }, [user?.id]);
+  }, [user?.id, updateState]);
 
-  // Journal entries refresh
+  // Journal entries refresh with memoization
   const refreshJournalEntries = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || refreshingRef.current) return;
     
     await withErrorHandling(
       async () => {
@@ -131,16 +148,16 @@ export const useGlobalState = (): GlobalStateHook => {
           .order('date', { ascending: false });
 
         if (error) throw error;
-        setState(prev => ({ ...prev, journalEntries: data || [] }));
+        updateState(prev => ({ ...prev, journalEntries: data || [] }));
       },
       undefined,
       'refreshJournalEntries'
     );
-  }, [user?.id]);
+  }, [user?.id, updateState]);
 
-  // Content items refresh
+  // Content items refresh with memoization
   const refreshContentItems = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || refreshingRef.current) return;
     
     await withErrorHandling(
       async () => {
@@ -151,16 +168,16 @@ export const useGlobalState = (): GlobalStateHook => {
           .order('created_at', { ascending: false });
 
         if (error) throw error;
-        setState(prev => ({ ...prev, contentItems: data || [] }));
+        updateState(prev => ({ ...prev, contentItems: data || [] }));
       },
       undefined,
       'refreshContentItems'
     );
-  }, [user?.id]);
+  }, [user?.id, updateState]);
 
-  // Learning goals refresh
+  // Learning goals refresh with memoization
   const refreshLearningGoals = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || refreshingRef.current) return;
     
     await withErrorHandling(
       async () => {
@@ -171,16 +188,16 @@ export const useGlobalState = (): GlobalStateHook => {
           .order('target_date', { ascending: true });
 
         if (error) throw error;
-        setState(prev => ({ ...prev, learningGoals: data || [] }));
+        updateState(prev => ({ ...prev, learningGoals: data || [] }));
       },
       undefined,
       'refreshLearningGoals'
     );
-  }, [user?.id]);
+  }, [user?.id, updateState]);
 
-  // Quick links refresh
+  // Quick links refresh with memoization
   const refreshQuickLinks = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || refreshingRef.current) return;
     
     await withErrorHandling(
       async () => {
@@ -191,16 +208,16 @@ export const useGlobalState = (): GlobalStateHook => {
           .order('created_at', { ascending: true });
 
         if (error) throw error;
-        setState(prev => ({ ...prev, quickLinks: data || [] }));
+        updateState(prev => ({ ...prev, quickLinks: data || [] }));
       },
       undefined,
       'refreshQuickLinks'
     );
-  }, [user?.id]);
+  }, [user?.id, updateState]);
 
-  // Prompts refresh
+  // Prompts refresh with memoization
   const refreshPrompts = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || refreshingRef.current) return;
     
     await withErrorHandling(
       async () => {
@@ -211,16 +228,16 @@ export const useGlobalState = (): GlobalStateHook => {
           .order('created_at', { ascending: false });
 
         if (error) throw error;
-        setState(prev => ({ ...prev, prompts: data || [] }));
+        updateState(prev => ({ ...prev, prompts: data || [] }));
       },
       undefined,
       'refreshPrompts'
     );
-  }, [user?.id]);
+  }, [user?.id, updateState]);
 
-  // Calorie entries refresh
+  // Calorie entries refresh with memoization
   const refreshCalorieEntries = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || refreshingRef.current) return;
     
     await withErrorHandling(
       async () => {
@@ -231,16 +248,16 @@ export const useGlobalState = (): GlobalStateHook => {
           .order('date', { ascending: false });
 
         if (error) throw error;
-        setState(prev => ({ ...prev, calorieEntries: data || [] }));
+        updateState(prev => ({ ...prev, calorieEntries: data || [] }));
       },
       undefined,
       'refreshCalorieEntries'
     );
-  }, [user?.id]);
+  }, [user?.id, updateState]);
 
-  // Workout entries refresh
+  // Workout entries refresh with memoization
   const refreshWorkoutEntries = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || refreshingRef.current) return;
     
     await withErrorHandling(
       async () => {
@@ -251,16 +268,16 @@ export const useGlobalState = (): GlobalStateHook => {
           .order('date', { ascending: false });
 
         if (error) throw error;
-        setState(prev => ({ ...prev, workoutEntries: data || [] }));
+        updateState(prev => ({ ...prev, workoutEntries: data || [] }));
       },
       undefined,
       'refreshWorkoutEntries'
     );
-  }, [user?.id]);
+  }, [user?.id, updateState]);
 
-  // Weight entries refresh
+  // Weight entries refresh with memoization
   const refreshWeightEntries = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || refreshingRef.current) return;
     
     await withErrorHandling(
       async () => {
@@ -271,16 +288,16 @@ export const useGlobalState = (): GlobalStateHook => {
           .order('date', { ascending: false });
 
         if (error) throw error;
-        setState(prev => ({ ...prev, weightEntries: data || [] }));
+        updateState(prev => ({ ...prev, weightEntries: data || [] }));
       },
       undefined,
       'refreshWeightEntries'
     );
-  }, [user?.id]);
+  }, [user?.id, updateState]);
 
-  // Sleep entries refresh
+  // Sleep entries refresh with memoization
   const refreshSleepEntries = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || refreshingRef.current) return;
     
     await withErrorHandling(
       async () => {
@@ -291,16 +308,16 @@ export const useGlobalState = (): GlobalStateHook => {
           .order('date', { ascending: false });
 
         if (error) throw error;
-        setState(prev => ({ ...prev, sleepEntries: data || [] }));
+        updateState(prev => ({ ...prev, sleepEntries: data || [] }));
       },
       undefined,
       'refreshSleepEntries'
     );
-  }, [user?.id]);
+  }, [user?.id, updateState]);
 
-  // Channels refresh
+  // Channels refresh with memoization
   const refreshChannels = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || refreshingRef.current) return;
     
     await withErrorHandling(
       async () => {
@@ -311,18 +328,20 @@ export const useGlobalState = (): GlobalStateHook => {
           .order('created_at', { ascending: false });
 
         if (error) throw error;
-        setState(prev => ({ ...prev, channels: data || [] }));
+        updateState(prev => ({ ...prev, channels: data || [] }));
       },
       undefined,
       'refreshChannels'
     );
-  }, [user?.id]);
+  }, [user?.id, updateState]);
 
-  // Refresh all data with better error handling
+  // Optimized refresh all with debouncing
   const refreshAll = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || refreshingRef.current) return;
     
+    refreshingRef.current = true;
     setLoading(true);
+    
     try {
       // Use Promise.allSettled to prevent one failure from stopping others
       const results = await Promise.allSettled([
@@ -351,10 +370,13 @@ export const useGlobalState = (): GlobalStateHook => {
           console.warn(`Failed to refresh ${operations[index]}:`, result.reason);
         }
       });
+      
+      isInitializedRef.current = true;
     } catch (error) {
       console.error('Error refreshing all data:', error);
     } finally {
       setLoading(false);
+      refreshingRef.current = false;
     }
   }, [
     user?.id,
@@ -372,72 +394,97 @@ export const useGlobalState = (): GlobalStateHook => {
     refreshChannels
   ]);
 
-  // Initial data load
+  // Optimized initial data load with user change detection
   useEffect(() => {
-    if (user?.id) {
+    const currentUserId = user?.id;
+    
+    // Only refresh if user changed or not initialized
+    if (currentUserId && (currentUserId !== lastUserIdRef.current || !isInitializedRef.current)) {
+      lastUserIdRef.current = currentUserId;
       refreshAll();
-    } else {
+    } else if (!currentUserId) {
+      // Reset state when user logs out
       setState(initialState);
       setLoading(false);
+      isInitializedRef.current = false;
+      lastUserIdRef.current = null;
     }
   }, [user?.id, refreshAll]);
 
-  // Listen for global data updates
+  // Debounced data update listener
   useEffect(() => {
+    let updateTimeout: NodeJS.Timeout;
+    
     const handleDataUpdate = (event: CustomEvent) => {
       const { type } = event.detail;
       
-      switch (type) {
-        case 'profile':
+      // Debounce updates to prevent rapid re-renders
+      clearTimeout(updateTimeout);
+      updateTimeout = setTimeout(() => {
+        if (refreshingRef.current) return;
+        
+        switch (type) {
+          case 'profile':
+            refreshProfile();
+            break;
+          case 'todos':
+            refreshTodos();
+            break;
+          case 'journal':
+            refreshJournalEntries();
+            break;
+          case 'content':
+            refreshContentItems();
+            break;
+          case 'learning':
+            refreshLearningGoals();
+            break;
+          case 'links':
+            refreshQuickLinks();
+            break;
+          case 'prompts':
+            refreshPrompts();
+            break;
+          case 'calories':
+            refreshCalorieEntries();
+            break;
+          case 'workouts':
+            refreshWorkoutEntries();
+            break;
+          case 'weight':
+            refreshWeightEntries();
+            break;
+          case 'sleep':
+            refreshSleepEntries();
+            break;
+          case 'channels':
+            refreshChannels();
+            break;
+          case 'all':
+            refreshAll();
+            break;
+          default:
+            break;
+        }
+      }, 100); // 100ms debounce
+    };
+
+    const handleProfileUpdate = () => {
+      clearTimeout(updateTimeout);
+      updateTimeout = setTimeout(() => {
+        if (!refreshingRef.current) {
           refreshProfile();
-          break;
-        case 'todos':
-          refreshTodos();
-          break;
-        case 'journal':
-          refreshJournalEntries();
-          break;
-        case 'content':
-          refreshContentItems();
-          break;
-        case 'learning':
-          refreshLearningGoals();
-          break;
-        case 'links':
-          refreshQuickLinks();
-          break;
-        case 'prompts':
-          refreshPrompts();
-          break;
-        case 'calories':
-          refreshCalorieEntries();
-          break;
-        case 'workouts':
-          refreshWorkoutEntries();
-          break;
-        case 'weight':
-          refreshWeightEntries();
-          break;
-        case 'sleep':
-          refreshSleepEntries();
-          break;
-        case 'channels':
-          refreshChannels();
-          break;
-        case 'all':
-          refreshAll();
-          break;
-        default:
-          break;
-      }
+        }
+      }, 100);
     };
 
     window.addEventListener('dataUpdated', handleDataUpdate as EventListener);
-    window.addEventListener('profileUpdated', () => refreshProfile());
+    window.addEventListener('profileUpdated', handleProfileUpdate);
 
     return () => {
+      clearTimeout(updateTimeout);
       window.removeEventListener('dataUpdated', handleDataUpdate as EventListener);
-      window.removeEventListener('profileUpdated', () => refreshProfile());
+      window.removeEventListener('profileUpdated', handleProfileUpdate);
     };
   }, [
     refreshProfile,
@@ -474,7 +521,11 @@ export const useGlobalState = (): GlobalStateHook => {
   };
 };
 
-// Helper function to trigger data updates
+// Debounced helper function to trigger data updates
+let triggerTimeout: NodeJS.Timeout;
 export const triggerDataUpdate = (type: string) => {
-  window.dispatchEvent(new CustomEvent('dataUpdated', { detail: { type } }));
+  clearTimeout(triggerTimeout);
+  triggerTimeout = setTimeout(() => {
+    window.dispatchEvent(new CustomEvent('dataUpdated', { detail: { type } }));
+  }, 50); // 50ms debounce for triggers
 };
