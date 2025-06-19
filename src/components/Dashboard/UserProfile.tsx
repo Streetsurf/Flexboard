@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { User, Mail, Calendar, Save, Edit2, X, Download } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { User, Mail, Calendar, Save, Edit2, X, Download, Upload, Image } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { triggerDataUpdate } from '../../hooks/useGlobalState';
@@ -24,12 +24,15 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(!globalData);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [activeTab, setActiveTab] = useState<'general' | 'billing' | 'password'>('general');
   const [editForm, setEditForm] = useState({
     full_name: '',
     bio: '',
     avatar_url: ''
   });
+  const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
 
   useEffect(() => {
@@ -93,6 +96,74 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }
     }
   };
 
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setErrors({ ...errors, avatar: 'Please select an image file' });
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setErrors({ ...errors, avatar: 'Image must be smaller than 5MB' });
+      return;
+    }
+
+    setUploading(true);
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+      const img = document.createElement('img');
+      img.onload = () => {
+        // Create canvas to resize image to 500x500
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        canvas.width = 500;
+        canvas.height = 500;
+        
+        if (ctx) {
+          // Draw image scaled to fit 500x500 while maintaining aspect ratio
+          const scale = Math.min(500 / img.width, 500 / img.height);
+          const scaledWidth = img.width * scale;
+          const scaledHeight = img.height * scale;
+          const x = (500 - scaledWidth) / 2;
+          const y = (500 - scaledHeight) / 2;
+          
+          // Fill background with white
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, 500, 500);
+          
+          // Draw the image
+          ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
+          
+          // Convert to base64
+          const resizedDataUrl = canvas.toDataURL('image/png', 0.9);
+          setEditForm({ ...editForm, avatar_url: resizedDataUrl });
+          setErrors({ ...errors, avatar: '' });
+        }
+        setUploading(false);
+      };
+      
+      img.onerror = () => {
+        setErrors({ ...errors, avatar: 'Invalid image file' });
+        setUploading(false);
+      };
+      
+      img.src = e.target?.result as string;
+    };
+    
+    reader.onerror = () => {
+      setErrors({ ...errors, avatar: 'Failed to read file' });
+      setUploading(false);
+    };
+    
+    reader.readAsDataURL(file);
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -136,6 +207,14 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }
       avatar_url: profile?.avatar_url || ''
     });
     setIsEditing(false);
+    setErrors({});
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const isValidImageUrl = (url: string): boolean => {
+    return url && (url.startsWith('http') || url.startsWith('data:image/'));
   };
 
   // Mock data for demonstration
@@ -225,33 +304,67 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }
 
           {isEditing ? (
             <form onSubmit={handleSave} className="space-y-5">
-              {/* Avatar Section */}
-              <div className="flex items-center space-x-5">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden">
-                  {editForm.avatar_url ? (
-                    <img
-                      src={editForm.avatar_url}
-                      alt="Profile"
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                        e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                      }}
+              {/* Logo Upload Section */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Profile Logo
+                </label>
+                
+                <div className="flex items-center space-x-6">
+                  {/* Current logo preview */}
+                  <div className="w-20 h-20 bg-gray-100 border-2 border-dashed border-gray-300 rounded-xl flex items-center justify-center overflow-hidden">
+                    {editForm.avatar_url && isValidImageUrl(editForm.avatar_url) ? (
+                      <img
+                        src={editForm.avatar_url}
+                        alt="Profile logo"
+                        className="w-full h-full object-cover rounded-xl"
+                      />
+                    ) : (
+                      <User className="w-8 h-8 text-gray-400" />
+                    )}
+                  </div>
+                  
+                  {/* Upload controls */}
+                  <div className="flex-1">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileUpload}
+                      className="hidden"
                     />
-                  ) : null}
-                  <User className={`w-6 h-6 text-gray-400 ${editForm.avatar_url ? 'hidden' : ''}`} />
-                </div>
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Avatar URL
-                  </label>
-                  <input
-                    type="url"
-                    value={editForm.avatar_url}
-                    onChange={(e) => setEditForm({ ...editForm, avatar_url: e.target.value })}
-                    placeholder="https://example.com/avatar.jpg"
-                    className="input"
-                  />
+                    
+                    <div className="space-y-3">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploading}
+                        className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Upload className="w-4 h-4 mr-2" />
+                        {uploading ? 'Processing...' : 'Add Logo'}
+                      </button>
+                      
+                      {editForm.avatar_url && (
+                        <button
+                          type="button"
+                          onClick={() => setEditForm({ ...editForm, avatar_url: '' })}
+                          className="block text-sm text-red-600 hover:text-red-700"
+                        >
+                          Remove Logo
+                        </button>
+                      )}
+                    </div>
+                    
+                    {errors.avatar && (
+                      <p className="text-red-600 text-xs mt-2">{errors.avatar}</p>
+                    )}
+                    
+                    <p className="text-xs text-gray-500 mt-2">
+                      Upload a PNG, JPG, or GIF image. Maximum size: 5MB.<br />
+                      Image will be automatically resized to 500x500px.
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -303,7 +416,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }
               <div className="flex space-x-2">
                 <button
                   type="submit"
-                  disabled={saving}
+                  disabled={saving || uploading}
                   className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Save className="w-3.5 h-3.5 mr-1.5" />
@@ -313,6 +426,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }
                   type="button"
                   onClick={handleCancel}
                   className="btn-secondary"
+                  disabled={saving || uploading}
                 >
                   <X className="w-3.5 h-3.5 mr-1.5" />
                   Cancel
@@ -323,19 +437,19 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }
             <div className="space-y-5">
               {/* Profile Display */}
               <div className="flex items-center space-x-5">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden">
-                  {profile?.avatar_url ? (
+                <div className="w-20 h-20 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden border border-gray-200">
+                  {profile?.avatar_url && isValidImageUrl(profile.avatar_url) ? (
                     <img
                       src={profile.avatar_url}
-                      alt="Profile"
-                      className="w-full h-full object-cover"
+                      alt="Profile logo"
+                      className="w-full h-full object-cover rounded-xl"
                       onError={(e) => {
                         e.currentTarget.style.display = 'none';
                         e.currentTarget.nextElementSibling?.classList.remove('hidden');
                       }}
                     />
                   ) : null}
-                  <User className={`w-6 h-6 text-gray-400 ${profile?.avatar_url ? 'hidden' : ''}`} />
+                  <User className={`w-8 h-8 text-gray-400 ${profile?.avatar_url && isValidImageUrl(profile.avatar_url) ? 'hidden' : ''}`} />
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">
