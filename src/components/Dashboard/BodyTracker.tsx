@@ -20,7 +20,7 @@ import {
   AlertCircle,
   RefreshCw
 } from 'lucide-react';
-import { supabase, testSupabaseConnection } from '../../lib/supabase';
+import { supabase, fastQuery, getCachedData, setCachedData, testSupabaseConnection } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, eachDayOfInterval, isSameWeek } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
@@ -86,7 +86,7 @@ interface SleepEntry {
 interface WeeklyStats {
   totalCaloriesIn: number;
   totalCaloriesOut: number;
-  calorieBalance: number; // TDEE - Intake + Workout calories
+  calorieBalance: number;
   avgCaloriesPerDay: number;
   weightChange: number;
   workoutDays: number;
@@ -95,7 +95,7 @@ interface WeeklyStats {
   currentWeight: number;
   bmr: number;
   tdee: number;
-  daysWithData: number; // New field to track days with actual data
+  daysWithData: number;
 }
 
 interface Achievement {
@@ -115,23 +115,23 @@ const BodyTracker: React.FC = () => {
   const [selectedWeek, setSelectedWeek] = useState(new Date());
   const [activeTab, setActiveTab] = useState<'dashboard' | 'profile' | 'calories' | 'workout' | 'weight' | 'sleep'>('dashboard');
   const [showForm, setShowForm] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start with false for instant loading
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
 
-  // Data states dengan cache
+  // Data states dengan cache dan persistence
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [allCalorieEntries, setAllCalorieEntries] = useState<CalorieEntry[]>([]);
   const [allWorkoutEntries, setAllWorkoutEntries] = useState<WorkoutEntry[]>([]);
   const [allWeightEntries, setAllWeightEntries] = useState<WeightEntry[]>([]);
-  const [allSleepEntries, setAllSleepEntries] = useState<SleepEntry[]>([]);
+  const [allSleepEntries, setSleepEntries] = useState<SleepEntry[]>([]);
 
   // Memoized calculations
   const weekStart = useMemo(() => startOfWeek(selectedWeek, { weekStartsOn: 1 }), [selectedWeek]);
   const weekEnd = useMemo(() => endOfWeek(selectedWeek, { weekStartsOn: 1 }), [selectedWeek]);
   const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: weekEnd }), [weekStart, weekEnd]);
 
-  // Filter data untuk minggu yang dipilih dari cache
+  // Filter data untuk minggu yang dipilih dari cache dengan smooth transition
   const calorieEntries = useMemo(() => {
     const weekStartStr = format(weekStart, 'yyyy-MM-dd');
     const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
@@ -167,11 +167,9 @@ const BodyTracker: React.FC = () => {
   // Get current weight from latest weight entry
   const getCurrentWeight = useCallback((): number => {
     if (allWeightEntries.length === 0) {
-      // Fallback to target weight if no weight entries exist
       return profile?.target_weight || 70;
     }
     
-    // Sort by date and get the most recent entry
     const sortedEntries = [...allWeightEntries].sort((a, b) => 
       new Date(b.date).getTime() - new Date(a.date).getTime()
     );
@@ -220,46 +218,28 @@ const BodyTracker: React.FC = () => {
       };
     }
 
-    // Filter entries for current week
-    const weekCalories = calorieEntries;
-    const weekWorkouts = workoutEntries;
-    const weekSleep = sleepEntries;
-    const weekWeights = weightEntries;
-
-    // Get unique dates that have either calorie or workout data
-    const datesWithCalorieData = new Set(weekCalories.map(entry => entry.date));
-    const datesWithWorkoutData = new Set(weekWorkouts.map(entry => entry.date));
+    const datesWithCalorieData = new Set(calorieEntries.map(entry => entry.date));
+    const datesWithWorkoutData = new Set(workoutEntries.map(entry => entry.date));
     const allDatesWithData = new Set([...datesWithCalorieData, ...datesWithWorkoutData]);
     const daysWithData = allDatesWithData.size;
 
-    // Calculate totals
-    const totalCaloriesIn = weekCalories.reduce((sum, entry) => sum + entry.calories, 0);
-    const totalCaloriesOut = weekWorkouts.reduce((sum, entry) => sum + entry.calories_burned, 0);
+    const totalCaloriesIn = calorieEntries.reduce((sum, entry) => sum + entry.calories, 0);
+    const totalCaloriesOut = workoutEntries.reduce((sum, entry) => sum + entry.calories_burned, 0);
     
-    // Get current weight (latest weight entry from all data)
     const currentWeight = getCurrentWeight();
-
-    // Calculate BMR and TDEE using current weight
     const bmr = calculateBMR(profile, currentWeight);
     const tdee = calculateTDEE(bmr, profile.activity_level);
     
-    // Calculate TDEE only for days with data (not full 7 days)
     const weeklyTDEE = tdee * daysWithData;
-
-    // CORRECTED FORMULA: TDEE - Calorie Intake + Calories Burned from Workout
-    // Only calculate for days with actual data
     const calorieBalance = weeklyTDEE - totalCaloriesIn + totalCaloriesOut;
 
-    // Weight change calculation
     let weightChange = 0;
-    if (weekWeights.length >= 2) {
-      // Compare first and last weight in the week
-      const sortedWeekWeights = [...weekWeights].sort((a, b) => 
+    if (weightEntries.length >= 2) {
+      const sortedWeekWeights = [...weightEntries].sort((a, b) => 
         new Date(a.date).getTime() - new Date(b.date).getTime()
       );
       weightChange = sortedWeekWeights[sortedWeekWeights.length - 1].weight - sortedWeekWeights[0].weight;
-    } else if (weekWeights.length === 1) {
-      // Compare with previous week's last entry
+    } else if (weightEntries.length === 1) {
       const prevWeekStart = format(subWeeks(weekStart, 1), 'yyyy-MM-dd');
       const prevWeekEnd = format(subWeeks(weekEnd, 1), 'yyyy-MM-dd');
       const prevWeekWeights = allWeightEntries.filter(entry => 
@@ -269,16 +249,13 @@ const BodyTracker: React.FC = () => {
         const sortedPrevWeights = [...prevWeekWeights].sort((a, b) => 
           new Date(a.date).getTime() - new Date(b.date).getTime()
         );
-        weightChange = weekWeights[0].weight - sortedPrevWeights[sortedPrevWeights.length - 1].weight;
+        weightChange = weightEntries[0].weight - sortedPrevWeights[sortedPrevWeights.length - 1].weight;
       }
     }
 
-    // Workout days (unique dates)
-    const workoutDays = new Set(weekWorkouts.map(entry => entry.date)).size;
-
-    // Sleep calculations
-    const totalSleepHours = weekSleep.reduce((sum, entry) => sum + entry.duration_hours, 0);
-    const avgSleepHours = weekSleep.length > 0 ? totalSleepHours / weekSleep.length : 0;
+    const workoutDays = new Set(workoutEntries.map(entry => entry.date)).size;
+    const totalSleepHours = sleepEntries.reduce((sum, entry) => sum + entry.duration_hours, 0);
+    const avgSleepHours = sleepEntries.length > 0 ? totalSleepHours / sleepEntries.length : 0;
 
     return {
       totalCaloriesIn,
@@ -381,73 +358,102 @@ const BodyTracker: React.FC = () => {
     setConnectionError(errorMessage);
   }, []);
 
-  // Data fetching functions with enhanced error handling and caching
-  const fetchProfile = useCallback(async () => {
+  // Ultra-fast profile loading with persistence
+  const loadProfile = useCallback(async () => {
     if (!user?.id) return;
     
-    try {
+    // Try cache first for instant loading
+    const cacheKey = `profile_${user.id}`;
+    const cached = getCachedData(cacheKey);
+    if (cached) {
+      setProfile(cached);
       setConnectionError(null);
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-
-      if (error && error.code !== 'PGRST116') throw error;
-      setProfile(data);
-    } catch (error) {
-      handleError(error, 'fetch profile');
+      return;
     }
-  }, [user?.id, handleError]);
-
-  const fetchAllData = useCallback(async () => {
-    if (!user?.id) return;
     
     try {
       setConnectionError(null);
       
-      // Fetch data untuk 3 bulan ke depan dan belakang
+      const { data, error, fromCache } = await fastQuery('profiles', {
+        select: '*',
+        eq: { id: user.id }
+      });
+
+      if (error && error.code !== 'PGRST116') throw error;
+      
+      const profileData = data && data.length > 0 ? data[0] : null;
+      setProfile(profileData);
+      
+      // Cache for ultra-fast future access
+      if (!fromCache && profileData) {
+        setCachedData(cacheKey, profileData);
+      }
+    } catch (error) {
+      handleError(error, 'load profile');
+    }
+  }, [user?.id, handleError]);
+
+  // Ultra-fast data loading with aggressive caching
+  const loadAllData = useCallback(async () => {
+    if (!user?.id) return;
+    
+    // Try cache first for instant loading
+    const cacheKey = `body_tracker_data_${user.id}`;
+    const cached = getCachedData(cacheKey);
+    if (cached) {
+      setAllCalorieEntries(cached.calories || []);
+      setAllWorkoutEntries(cached.workouts || []);
+      setAllWeightEntries(cached.weights || []);
+      setSleepEntries(cached.sleep || []);
+      setConnectionError(null);
+      return;
+    }
+    
+    try {
+      setConnectionError(null);
+      
+      // Fetch data untuk 6 bulan ke depan dan belakang untuk smooth navigation
       const startDate = new Date(selectedWeek);
-      startDate.setMonth(startDate.getMonth() - 3);
+      startDate.setMonth(startDate.getMonth() - 6);
       const endDate = new Date(selectedWeek);
-      endDate.setMonth(endDate.getMonth() + 3);
+      endDate.setMonth(endDate.getMonth() + 6);
       
       const startDateStr = format(startDate, 'yyyy-MM-dd');
       const endDateStr = format(endDate, 'yyyy-MM-dd');
 
-      // Fetch all data in parallel
+      // Fetch all data in parallel with ultra-fast queries
       const [caloriesRes, workoutsRes, weightsRes, sleepRes] = await Promise.all([
-        supabase
-          .from('calorie_entries')
-          .select('*')
-          .eq('user_id', user.id)
-          .gte('date', startDateStr)
-          .lte('date', endDateStr)
-          .order('created_at', { ascending: false }),
+        fastQuery('calorie_entries', {
+          select: '*',
+          eq: { user_id: user.id },
+          gte: { date: startDateStr },
+          lte: { date: endDateStr },
+          order: { column: 'created_at', ascending: false }
+        }),
         
-        supabase
-          .from('workout_entries')
-          .select('*')
-          .eq('user_id', user.id)
-          .gte('date', startDateStr)
-          .lte('date', endDateStr)
-          .order('created_at', { ascending: false }),
+        fastQuery('workout_entries', {
+          select: '*',
+          eq: { user_id: user.id },
+          gte: { date: startDateStr },
+          lte: { date: endDateStr },
+          order: { column: 'created_at', ascending: false }
+        }),
         
-        supabase
-          .from('weight_entries')
-          .select('*')
-          .eq('user_id', user.id)
-          .gte('date', startDateStr)
-          .lte('date', endDateStr)
-          .order('date', { ascending: false }),
+        fastQuery('weight_entries', {
+          select: '*',
+          eq: { user_id: user.id },
+          gte: { date: startDateStr },
+          lte: { date: endDateStr },
+          order: { column: 'date', ascending: false }
+        }),
         
-        supabase
-          .from('sleep_entries')
-          .select('*')
-          .eq('user_id', user.id)
-          .gte('date', startDateStr)
-          .lte('date', endDateStr)
-          .order('date', { ascending: false })
+        fastQuery('sleep_entries', {
+          select: '*',
+          eq: { user_id: user.id },
+          gte: { date: startDateStr },
+          lte: { date: endDateStr },
+          order: { column: 'date', ascending: false }
+        })
       ]);
 
       if (caloriesRes.error) throw caloriesRes.error;
@@ -455,12 +461,24 @@ const BodyTracker: React.FC = () => {
       if (weightsRes.error) throw weightsRes.error;
       if (sleepRes.error) throw sleepRes.error;
 
-      setAllCalorieEntries(caloriesRes.data || []);
-      setAllWorkoutEntries(workoutsRes.data || []);
-      setAllWeightEntries(weightsRes.data || []);
-      setAllSleepEntries(sleepRes.data || []);
+      const allData = {
+        calories: caloriesRes.data || [],
+        workouts: workoutsRes.data || [],
+        weights: weightsRes.data || [],
+        sleep: sleepRes.data || []
+      };
+
+      setAllCalorieEntries(allData.calories);
+      setAllWorkoutEntries(allData.workouts);
+      setAllWeightEntries(allData.weights);
+      setSleepEntries(allData.sleep);
+      
+      // Cache for ultra-fast future access
+      if (!caloriesRes.fromCache) {
+        setCachedData(cacheKey, allData);
+      }
     } catch (error) {
-      handleError(error, 'fetch data');
+      handleError(error, 'load data');
     }
   }, [user?.id, selectedWeek, handleError]);
 
@@ -470,7 +488,6 @@ const BodyTracker: React.FC = () => {
     setConnectionError(null);
     setRetryCount(prev => prev + 1);
     
-    // Test connection first
     const isConnected = await testSupabaseConnection();
     if (!isConnected) {
       setConnectionError('Unable to connect to the database. Please check your internet connection and try again.');
@@ -479,25 +496,43 @@ const BodyTracker: React.FC = () => {
     }
     
     try {
-      await Promise.all([fetchProfile(), fetchAllData()]);
+      await Promise.all([loadProfile(), loadAllData()]);
     } finally {
       setLoading(false);
     }
-  }, [fetchProfile, fetchAllData]);
+  }, [loadProfile, loadAllData]);
 
-  // Refresh data function untuk form components
-  const refreshData = useCallback(() => {
-    fetchAllData();
-  }, [fetchAllData]);
+  // Refresh data function untuk form components dengan cache update
+  const refreshData = useCallback(async () => {
+    if (!user?.id) return;
+    
+    // Clear cache untuk force refresh
+    const cacheKey = `body_tracker_data_${user.id}`;
+    setCachedData(cacheKey, null);
+    
+    await loadAllData();
+  }, [loadAllData, user?.id]);
 
-  // Effects
+  // Refresh profile dengan cache update
+  const refreshProfile = useCallback(async () => {
+    if (!user?.id) return;
+    
+    // Clear cache untuk force refresh
+    const cacheKey = `profile_${user.id}`;
+    setCachedData(cacheKey, null);
+    
+    await loadProfile();
+    await loadAllData(); // Refresh semua data karena profile mempengaruhi kalkulasi
+  }, [loadProfile, loadAllData, user?.id]);
+
+  // Initial load with cache priority
   useEffect(() => {
     if (user) {
-      Promise.all([fetchProfile(), fetchAllData()]).finally(() => {
+      Promise.all([loadProfile(), loadAllData()]).finally(() => {
         setLoading(false);
       });
     }
-  }, [user, fetchProfile, fetchAllData]);
+  }, [user, loadProfile, loadAllData]);
 
   // Navigation functions dengan smooth transition
   const navigateWeek = useCallback((direction: 'prev' | 'next') => {
@@ -506,9 +541,7 @@ const BodyTracker: React.FC = () => {
       : addWeeks(selectedWeek, 1);
     
     setSelectedWeek(newWeek);
-    
-    // Preload data untuk minggu baru jika diperlukan
-    // Data akan difilter dari cache yang sudah ada
+    // Data akan difilter dari cache yang sudah ada - smooth transition!
   }, [selectedWeek]);
 
   const goToCurrentWeek = useCallback(() => {
@@ -610,7 +643,7 @@ const BodyTracker: React.FC = () => {
     );
   }
 
-  if (loading) {
+  if (loading && !profile && allCalorieEntries.length === 0) {
     return (
       <div className="space-y-6">
         <div className="card animate-fadeIn">
@@ -917,14 +950,11 @@ const BodyTracker: React.FC = () => {
         </div>
       )}
 
-      {/* Profile Tab */}
+      {/* Profile Tab dengan persistence */}
       {activeTab === 'profile' && (
         <ProfileForm 
           profile={profile} 
-          onSave={() => {
-            fetchProfile();
-            fetchAllData(); // Refresh weight data when profile changes
-          }}
+          onSave={refreshProfile} // Gunakan refreshProfile untuk update cache
         />
       )}
 
