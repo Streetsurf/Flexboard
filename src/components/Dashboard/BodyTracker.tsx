@@ -90,6 +90,9 @@ interface WeeklyStats {
   workoutDays: number;
   avgSleepHours: number;
   totalSleepHours: number;
+  currentWeight: number;
+  bmr: number;
+  tdee: number;
 }
 
 interface Achievement {
@@ -117,14 +120,30 @@ const BodyTracker: React.FC = () => {
   const [workoutEntries, setWorkoutEntries] = useState<WorkoutEntry[]>([]);
   const [weightEntries, setWeightEntries] = useState<WeightEntry[]>([]);
   const [sleepEntries, setSleepEntries] = useState<SleepEntry[]>([]);
+  const [allWeightEntries, setAllWeightEntries] = useState<WeightEntry[]>([]); // For getting current weight
 
   // Memoized calculations
   const weekStart = useMemo(() => startOfWeek(selectedWeek, { weekStartsOn: 1 }), [selectedWeek]);
   const weekEnd = useMemo(() => endOfWeek(selectedWeek, { weekStartsOn: 1 }), [selectedWeek]);
   const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: weekEnd }), [weekStart, weekEnd]);
 
-  // BMR & TDEE Calculations
-  const calculateBMR = useCallback((profile: UserProfile, currentWeight?: number): number => {
+  // Get current weight from latest weight entry
+  const getCurrentWeight = useCallback((): number => {
+    if (allWeightEntries.length === 0) {
+      // Fallback to target weight if no weight entries exist
+      return profile?.target_weight || 70;
+    }
+    
+    // Sort by date and get the most recent entry
+    const sortedEntries = [...allWeightEntries].sort((a, b) => 
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+    
+    return sortedEntries[0].weight;
+  }, [allWeightEntries, profile?.target_weight]);
+
+  // BMR & TDEE Calculations using current weight
+  const calculateBMR = useCallback((profile: UserProfile, currentWeight: number): number => {
     if (!profile.age || !profile.height || !currentWeight) return 0;
     
     if (profile.gender === 'male') {
@@ -156,7 +175,10 @@ const BodyTracker: React.FC = () => {
         weightChange: 0,
         workoutDays: 0,
         avgSleepHours: 0,
-        totalSleepHours: 0
+        totalSleepHours: 0,
+        currentWeight: 0,
+        bmr: 0,
+        tdee: 0
       };
     }
 
@@ -181,12 +203,10 @@ const BodyTracker: React.FC = () => {
     const totalCaloriesIn = weekCalories.reduce((sum, entry) => sum + entry.calories, 0);
     const totalCaloriesOut = weekWorkouts.reduce((sum, entry) => sum + entry.calories_burned, 0);
     
-    // Get current weight for TDEE calculation
-    const currentWeight = weekWeights.length > 0 
-      ? weekWeights[weekWeights.length - 1].weight 
-      : profile.target_weight || 70;
+    // Get current weight (latest weight entry from all data)
+    const currentWeight = getCurrentWeight();
 
-    // Calculate BMR and TDEE
+    // Calculate BMR and TDEE using current weight
     const bmr = calculateBMR(profile, currentWeight);
     const tdee = calculateTDEE(bmr, profile.activity_level);
     const weeklyTDEE = tdee * 7; // TDEE for 7 days
@@ -198,16 +218,22 @@ const BodyTracker: React.FC = () => {
     let weightChange = 0;
     if (weekWeights.length >= 2) {
       // Compare first and last weight in the week
-      weightChange = weekWeights[weekWeights.length - 1].weight - weekWeights[0].weight;
+      const sortedWeekWeights = [...weekWeights].sort((a, b) => 
+        new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
+      weightChange = sortedWeekWeights[sortedWeekWeights.length - 1].weight - sortedWeekWeights[0].weight;
     } else if (weekWeights.length === 1) {
       // Compare with previous week's last entry
       const prevWeekStart = format(subWeeks(weekStart, 1), 'yyyy-MM-dd');
       const prevWeekEnd = format(subWeeks(weekEnd, 1), 'yyyy-MM-dd');
-      const prevWeekWeights = weightEntries.filter(entry => 
+      const prevWeekWeights = allWeightEntries.filter(entry => 
         entry.date >= prevWeekStart && entry.date <= prevWeekEnd
       );
       if (prevWeekWeights.length > 0) {
-        weightChange = weekWeights[0].weight - prevWeekWeights[prevWeekWeights.length - 1].weight;
+        const sortedPrevWeights = [...prevWeekWeights].sort((a, b) => 
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
+        weightChange = weekWeights[0].weight - sortedPrevWeights[sortedPrevWeights.length - 1].weight;
       }
     }
 
@@ -226,9 +252,12 @@ const BodyTracker: React.FC = () => {
       weightChange: Math.round(weightChange * 10) / 10,
       workoutDays,
       avgSleepHours: Math.round(avgSleepHours * 10) / 10,
-      totalSleepHours: Math.round(totalSleepHours * 10) / 10
+      totalSleepHours: Math.round(totalSleepHours * 10) / 10,
+      currentWeight: Math.round(currentWeight * 10) / 10,
+      bmr: Math.round(bmr),
+      tdee: Math.round(tdee)
     };
-  }, [profile, calorieEntries, workoutEntries, sleepEntries, weightEntries, weekStart, weekEnd, calculateBMR, calculateTDEE]);
+  }, [profile, calorieEntries, workoutEntries, sleepEntries, weightEntries, allWeightEntries, weekStart, weekEnd, calculateBMR, calculateTDEE, getCurrentWeight]);
 
   // Achievement System
   const achievements = useMemo((): Achievement[] => {
@@ -314,6 +343,25 @@ const BodyTracker: React.FC = () => {
     }
   }, [user?.id]);
 
+  const fetchAllWeightEntries = useCallback(async () => {
+    if (!user?.id) return;
+    
+    try {
+      // Fetch all weight entries to get current weight
+      const { data, error } = await supabase
+        .from('weight_entries')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('date', { ascending: false })
+        .limit(50); // Get recent entries
+
+      if (error) throw error;
+      setAllWeightEntries(data || []);
+    } catch (error) {
+      console.error('Error fetching all weight entries:', error);
+    }
+  }, [user?.id]);
+
   const fetchWeeklyData = useCallback(async () => {
     if (!user?.id) return;
     
@@ -373,11 +421,11 @@ const BodyTracker: React.FC = () => {
   // Effects
   useEffect(() => {
     if (user) {
-      Promise.all([fetchProfile(), fetchWeeklyData()]).finally(() => {
+      Promise.all([fetchProfile(), fetchAllWeightEntries(), fetchWeeklyData()]).finally(() => {
         setLoading(false);
       });
     }
-  }, [user, fetchProfile, fetchWeeklyData]);
+  }, [user, fetchProfile, fetchAllWeightEntries, fetchWeeklyData]);
 
   // Navigation functions
   const navigateWeek = (direction: 'prev' | 'next') => {
@@ -618,6 +666,37 @@ const BodyTracker: React.FC = () => {
               </div>
             </div>
 
+            {/* Current Weight & Metabolism Info */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
+                <h3 className="font-medium text-gray-900 mb-2">Berat Badan Saat Ini</h3>
+                <div className="text-2xl font-bold text-gray-900">{weeklyStats.currentWeight} kg</div>
+                <p className="text-xs text-gray-600 mt-1">
+                  {allWeightEntries.length > 0 
+                    ? `Berdasarkan entry terakhir: ${format(new Date(allWeightEntries[0]?.date || new Date()), 'd MMM yyyy')}`
+                    : 'Menggunakan target berat badan'
+                  }
+                </p>
+              </div>
+
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                <h3 className="font-medium text-blue-900 mb-2">Metabolisme</h3>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-blue-700">BMR:</span>
+                    <span className="font-medium text-blue-900 ml-1">{weeklyStats.bmr} kal/hari</span>
+                  </div>
+                  <div>
+                    <span className="text-blue-700">TDEE:</span>
+                    <span className="font-medium text-blue-900 ml-1">{weeklyStats.tdee} kal/hari</span>
+                  </div>
+                </div>
+                <p className="text-xs text-blue-600 mt-1">
+                  Berdasarkan berat badan saat ini: {weeklyStats.currentWeight} kg
+                </p>
+              </div>
+            </div>
+
             {/* Weekly Summary Highlight */}
             <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl animate-fadeIn">
               <div className="flex items-start space-x-3">
@@ -630,7 +709,7 @@ const BodyTracker: React.FC = () => {
                     {generateWeeklySummary()}
                   </p>
                   <div className="mt-2 text-xs text-blue-600">
-                    <strong>Formula:</strong> TDEE - Kalori Intake + Kalori Workout = {weeklyStats.calorieBalance > 0 ? 'Defisit' : 'Surplus'} {Math.abs(weeklyStats.calorieBalance)} kalori
+                    <strong>Formula:</strong> TDEE ({weeklyStats.tdee} × 7) - Kalori Intake + Kalori Workout = {weeklyStats.calorieBalance > 0 ? 'Defisit' : 'Surplus'} {Math.abs(weeklyStats.calorieBalance)} kalori
                   </div>
                 </div>
               </div>
@@ -723,7 +802,10 @@ const BodyTracker: React.FC = () => {
       {activeTab === 'profile' && (
         <ProfileForm 
           profile={profile} 
-          onSave={fetchProfile}
+          onSave={() => {
+            fetchProfile();
+            fetchAllWeightEntries(); // Refresh weight data when profile changes
+          }}
         />
       )}
 
@@ -753,7 +835,10 @@ const BodyTracker: React.FC = () => {
           selectedDate={selectedDate}
           onDateChange={setSelectedDate}
           entries={weightEntries}
-          onRefresh={fetchWeeklyData}
+          onRefresh={() => {
+            fetchWeeklyData();
+            fetchAllWeightEntries(); // Refresh all weight data when weight changes
+          }}
         />
       )}
 

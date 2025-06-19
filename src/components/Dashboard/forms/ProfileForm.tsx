@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Save, Settings, Target, Activity } from 'lucide-react';
+import { User, Save, Settings, Target, Activity, Scale } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../../hooks/useAuth';
 
@@ -22,6 +22,7 @@ interface ProfileFormProps {
 const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [currentWeight, setCurrentWeight] = useState<number | null>(null);
   const [formData, setFormData] = useState({
     age: '',
     gender: 'male' as const,
@@ -45,6 +46,32 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
       });
     }
   }, [profile]);
+
+  // Fetch current weight from latest weight entry
+  useEffect(() => {
+    const fetchCurrentWeight = async () => {
+      if (!user?.id) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('weight_entries')
+          .select('weight')
+          .eq('user_id', user.id)
+          .order('date', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (error && error.code !== 'PGRST116') throw error;
+        if (data) {
+          setCurrentWeight(data.weight);
+        }
+      } catch (error) {
+        console.error('Error fetching current weight:', error);
+      }
+    };
+
+    fetchCurrentWeight();
+  }, [user?.id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,11 +103,11 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
     }
   };
 
-  // BMR & TDEE Calculations for preview
+  // BMR & TDEE Calculations for preview using current weight
   const calculateBMR = (): number => {
     const age = parseInt(formData.age);
     const height = parseFloat(formData.height);
-    const weight = parseFloat(formData.target_weight);
+    const weight = currentWeight || parseFloat(formData.target_weight); // Use current weight if available
     
     if (!age || !height || !weight) return 0;
     
@@ -104,6 +131,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
 
   const bmr = calculateBMR();
   const tdee = calculateTDEE(bmr);
+  const weightUsed = currentWeight || parseFloat(formData.target_weight);
 
   const activityLabels = {
     sedentary: 'Tidak Aktif (Tidak olahraga)',
@@ -125,6 +153,21 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
             <h2 className="card-title">Profile & Target</h2>
           </div>
         </div>
+
+        {/* Current Weight Info */}
+        {currentWeight && (
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl">
+            <div className="flex items-center space-x-3">
+              <Scale className="w-5 h-5 text-green-600" />
+              <div>
+                <h3 className="font-medium text-green-900">Berat Badan Saat Ini</h3>
+                <p className="text-sm text-green-700">
+                  {currentWeight} kg - Digunakan untuk kalkulasi BMR & TDEE
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Basic Info */}
@@ -223,6 +266,11 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                   min="20"
                   max="300"
                 />
+                {!currentWeight && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Akan digunakan untuk kalkulasi BMR jika belum ada data berat badan
+                  </p>
+                )}
               </div>
 
               <div>
@@ -261,7 +309,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
           {bmr > 0 && (
             <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
               <h4 className="font-medium text-blue-900 mb-3">Kalkulasi Metabolisme</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-3">
                 <div>
                   <span className="text-blue-700">BMR (Basal Metabolic Rate):</span>
                   <span className="font-medium text-blue-900 ml-2">{Math.round(bmr)} kalori/hari</span>
@@ -271,10 +319,16 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                   <span className="font-medium text-blue-900 ml-2">{Math.round(tdee)} kalori/hari</span>
                 </div>
               </div>
-              <p className="text-xs text-blue-600 mt-2">
-                TDEE adalah perkiraan kalori yang kamu bakar per hari berdasarkan aktivitas. 
-                Untuk menurunkan berat badan, konsumsi kalori di bawah TDEE.
-              </p>
+              <div className="p-3 bg-white border border-blue-200 rounded-lg">
+                <p className="text-xs text-blue-600 mb-1">
+                  <strong>Berdasarkan berat badan:</strong> {weightUsed} kg 
+                  {currentWeight ? ' (berat saat ini)' : ' (target berat)'}
+                </p>
+                <p className="text-xs text-blue-600">
+                  TDEE adalah perkiraan kalori yang kamu bakar per hari berdasarkan aktivitas. 
+                  Untuk menurunkan berat badan, konsumsi kalori di bawah TDEE.
+                </p>
+              </div>
             </div>
           )}
 
