@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Link, Plus, ExternalLink, ChevronLeft, ChevronRight, Smartphone, Globe } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { Link, Plus, ExternalLink, ChevronLeft, ChevronRight, Smartphone, Globe, AlertCircle, RefreshCw } from 'lucide-react';
+import { supabase, testSupabaseConnection } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 
 interface QuickLink {
@@ -19,8 +19,28 @@ const QuickLinksHorizontal: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
+
+  // Enhanced error handling function
+  const handleError = useCallback((error: any, context: string) => {
+    console.error(`Error in ${context}:`, error);
+    
+    let errorMessage = `Failed to ${context.toLowerCase()}`;
+    
+    if (error.name === 'AbortError') {
+      errorMessage = 'Request timed out. Please check your internet connection.';
+    } else if (error.message?.includes('Failed to fetch')) {
+      errorMessage = 'Unable to connect to the server. Please check your internet connection.';
+    } else if (error.message?.includes('NetworkError')) {
+      errorMessage = 'Network error. Please check your internet connection.';
+    } else if (error.code) {
+      errorMessage = `Database error: ${error.message}`;
+    }
+    
+    setError(errorMessage);
+  }, []);
 
   // Memoize fetch function to prevent unnecessary re-renders
   const fetchLinks = useCallback(async () => {
@@ -41,26 +61,34 @@ const QuickLinksHorizontal: React.FC = () => {
         .limit(10);
 
       if (error) {
-        throw new Error(`Database error: ${error.message}`);
+        throw error;
       }
       
       setLinks(data || []);
     } catch (error: any) {
-      console.error('Error fetching quick links:', error);
-      
-      let errorMessage = 'Failed to load quick links';
-      if (error.name === 'AbortError') {
-        errorMessage = 'Request timed out';
-      } else if (error.message?.includes('Failed to fetch')) {
-        errorMessage = 'Connection error';
-      }
-      
-      setError(errorMessage);
+      handleError(error, 'fetch quick links');
       setLinks([]);
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, handleError]);
+
+  // Retry function
+  const retryConnection = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setRetryCount(prev => prev + 1);
+    
+    // Test connection first
+    const isConnected = await testSupabaseConnection();
+    if (!isConnected) {
+      setError('Unable to connect to the database. Please check your internet connection.');
+      setLoading(false);
+      return;
+    }
+    
+    await fetchLinks();
+  }, [fetchLinks]);
 
   // Use effect with dependency array to prevent unnecessary calls
   useEffect(() => {
@@ -137,15 +165,22 @@ const QuickLinksHorizontal: React.FC = () => {
     return (
       <div className="text-center py-3">
         <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mx-auto mb-2">
-          <ExternalLink className="w-5 h-5 text-red-400" />
+          <AlertCircle className="w-5 h-5 text-red-400" />
         </div>
         <p className="text-xs text-red-600 mb-2">{error}</p>
-        <button 
-          onClick={fetchLinks}
-          className="text-xs text-blue-600 hover:text-blue-700"
-        >
-          Retry
-        </button>
+        <div className="space-y-1">
+          <button 
+            onClick={retryConnection}
+            className="text-xs text-blue-600 hover:text-blue-700 inline-flex items-center space-x-1"
+            disabled={loading}
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+            <span>Retry</span>
+          </button>
+          {retryCount > 0 && (
+            <p className="text-xs text-gray-400">Attempt: {retryCount}</p>
+          )}
+        </div>
       </div>
     );
   }

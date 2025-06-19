@@ -16,9 +16,11 @@ import {
   ChevronRight,
   Award,
   BarChart3,
-  Settings
+  Settings,
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { supabase, testSupabaseConnection } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, eachDayOfInterval, isSameWeek } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
@@ -114,6 +116,8 @@ const BodyTracker: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'profile' | 'calories' | 'workout' | 'weight' | 'sleep'>('dashboard');
   const [showForm, setShowForm] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   // Data states
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -337,11 +341,31 @@ const BodyTracker: React.FC = () => {
     ];
   }, [weeklyStats, profile]);
 
-  // Data fetching functions
+  // Enhanced error handling function
+  const handleError = useCallback((error: any, context: string) => {
+    console.error(`Error in ${context}:`, error);
+    
+    let errorMessage = `Failed to ${context.toLowerCase()}`;
+    
+    if (error.name === 'AbortError') {
+      errorMessage = 'Request timed out. Please check your internet connection.';
+    } else if (error.message?.includes('Failed to fetch')) {
+      errorMessage = 'Unable to connect to the server. Please check your internet connection and try again.';
+    } else if (error.message?.includes('NetworkError')) {
+      errorMessage = 'Network error. Please check your internet connection.';
+    } else if (error.code) {
+      errorMessage = `Database error: ${error.message}`;
+    }
+    
+    setConnectionError(errorMessage);
+  }, []);
+
+  // Data fetching functions with enhanced error handling
   const fetchProfile = useCallback(async () => {
     if (!user?.id) return;
     
     try {
+      setConnectionError(null);
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -351,14 +375,15 @@ const BodyTracker: React.FC = () => {
       if (error && error.code !== 'PGRST116') throw error;
       setProfile(data);
     } catch (error) {
-      console.error('Error fetching profile:', error);
+      handleError(error, 'fetch profile');
     }
-  }, [user?.id]);
+  }, [user?.id, handleError]);
 
   const fetchAllWeightEntries = useCallback(async () => {
     if (!user?.id) return;
     
     try {
+      setConnectionError(null);
       // Fetch all weight entries to get current weight
       const { data, error } = await supabase
         .from('weight_entries')
@@ -370,14 +395,15 @@ const BodyTracker: React.FC = () => {
       if (error) throw error;
       setAllWeightEntries(data || []);
     } catch (error) {
-      console.error('Error fetching all weight entries:', error);
+      handleError(error, 'fetch weight entries');
     }
-  }, [user?.id]);
+  }, [user?.id, handleError]);
 
   const fetchWeeklyData = useCallback(async () => {
     if (!user?.id) return;
     
     try {
+      setConnectionError(null);
       const weekStartStr = format(weekStart, 'yyyy-MM-dd');
       const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
 
@@ -426,9 +452,30 @@ const BodyTracker: React.FC = () => {
       setWeightEntries(weightsRes.data || []);
       setSleepEntries(sleepRes.data || []);
     } catch (error) {
-      console.error('Error fetching weekly data:', error);
+      handleError(error, 'fetch weekly data');
     }
-  }, [user?.id, weekStart, weekEnd]);
+  }, [user?.id, weekStart, weekEnd, handleError]);
+
+  // Retry function
+  const retryConnection = useCallback(async () => {
+    setLoading(true);
+    setConnectionError(null);
+    setRetryCount(prev => prev + 1);
+    
+    // Test connection first
+    const isConnected = await testSupabaseConnection();
+    if (!isConnected) {
+      setConnectionError('Unable to connect to the database. Please check your internet connection and try again.');
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      await Promise.all([fetchProfile(), fetchAllWeightEntries(), fetchWeeklyData()]);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchProfile, fetchAllWeightEntries, fetchWeeklyData]);
 
   // Effects
   useEffect(() => {
@@ -507,6 +554,45 @@ const BodyTracker: React.FC = () => {
     
     return `🔥 Minggu ini kamu ${balanceText} dan berhasil ${weightText}. ${workoutText} 💪`;
   };
+
+  // Connection error display
+  if (connectionError && !loading) {
+    return (
+      <div className="space-y-6">
+        <div className="card animate-fadeIn">
+          <div className="text-center py-8">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="w-8 h-8 text-red-500" />
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Connection Error</h3>
+            <p className="text-gray-600 mb-4 max-w-md mx-auto">{connectionError}</p>
+            <div className="space-y-2">
+              <button
+                onClick={retryConnection}
+                className="btn-primary inline-flex items-center space-x-2"
+                disabled={loading}
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                <span>Retry Connection</span>
+              </button>
+              {retryCount > 0 && (
+                <p className="text-xs text-gray-500">Retry attempt: {retryCount}</p>
+              )}
+            </div>
+            <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-left max-w-md mx-auto">
+              <h4 className="font-medium text-blue-900 mb-2">Troubleshooting Tips:</h4>
+              <ul className="text-sm text-blue-700 space-y-1">
+                <li>• Check your internet connection</li>
+                <li>• Refresh the page</li>
+                <li>• Try again in a few moments</li>
+                <li>• Contact support if the issue persists</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
