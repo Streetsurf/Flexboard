@@ -93,6 +93,7 @@ interface WeeklyStats {
   currentWeight: number;
   bmr: number;
   tdee: number;
+  daysWithData: number; // New field to track days with actual data
 }
 
 interface Achievement {
@@ -178,7 +179,8 @@ const BodyTracker: React.FC = () => {
         totalSleepHours: 0,
         currentWeight: 0,
         bmr: 0,
-        tdee: 0
+        tdee: 0,
+        daysWithData: 0
       };
     }
 
@@ -199,6 +201,12 @@ const BodyTracker: React.FC = () => {
       entry.date >= weekStartStr && entry.date <= weekEndStr
     );
 
+    // Get unique dates that have either calorie or workout data
+    const datesWithCalorieData = new Set(weekCalories.map(entry => entry.date));
+    const datesWithWorkoutData = new Set(weekWorkouts.map(entry => entry.date));
+    const allDatesWithData = new Set([...datesWithCalorieData, ...datesWithWorkoutData]);
+    const daysWithData = allDatesWithData.size;
+
     // Calculate totals
     const totalCaloriesIn = weekCalories.reduce((sum, entry) => sum + entry.calories, 0);
     const totalCaloriesOut = weekWorkouts.reduce((sum, entry) => sum + entry.calories_burned, 0);
@@ -209,9 +217,12 @@ const BodyTracker: React.FC = () => {
     // Calculate BMR and TDEE using current weight
     const bmr = calculateBMR(profile, currentWeight);
     const tdee = calculateTDEE(bmr, profile.activity_level);
-    const weeklyTDEE = tdee * 7; // TDEE for 7 days
+    
+    // Calculate TDEE only for days with data (not full 7 days)
+    const weeklyTDEE = tdee * daysWithData;
 
     // CORRECTED FORMULA: TDEE - Calorie Intake + Calories Burned from Workout
+    // Only calculate for days with actual data
     const calorieBalance = weeklyTDEE - totalCaloriesIn + totalCaloriesOut;
 
     // Weight change calculation
@@ -248,14 +259,15 @@ const BodyTracker: React.FC = () => {
       totalCaloriesIn,
       totalCaloriesOut,
       calorieBalance: Math.round(calorieBalance),
-      avgCaloriesPerDay: Math.round(totalCaloriesIn / 7),
+      avgCaloriesPerDay: daysWithData > 0 ? Math.round(totalCaloriesIn / daysWithData) : 0,
       weightChange: Math.round(weightChange * 10) / 10,
       workoutDays,
       avgSleepHours: Math.round(avgSleepHours * 10) / 10,
       totalSleepHours: Math.round(totalSleepHours * 10) / 10,
       currentWeight: Math.round(currentWeight * 10) / 10,
       bmr: Math.round(bmr),
-      tdee: Math.round(tdee)
+      tdee: Math.round(tdee),
+      daysWithData
     };
   }, [profile, calorieEntries, workoutEntries, sleepEntries, weightEntries, allWeightEntries, weekStart, weekEnd, calculateBMR, calculateTDEE, getCurrentWeight]);
 
@@ -618,7 +630,7 @@ const BodyTracker: React.FC = () => {
                   </span>
                 </div>
                 <div className={`stat-value ${getStatColor('balance', weeklyStats.calorieBalance)}`}>
-                  {weeklyStats.calorieBalance >= 0 ? '+' : ''}{weeklyStats.calorieBalance.toLocaleString()}
+                  {weeklyStats.calorieBalance >= 0 ? '' : '+'}{Math.abs(weeklyStats.calorieBalance).toLocaleString()}
                 </div>
                 <div className="stat-label">Kalori Balance</div>
               </div>
@@ -709,8 +721,13 @@ const BodyTracker: React.FC = () => {
                     {generateWeeklySummary()}
                   </p>
                   <div className="mt-2 text-xs text-blue-600">
-                    <strong>Formula:</strong> TDEE ({weeklyStats.tdee} × 7) - Kalori Intake + Kalori Workout = {weeklyStats.calorieBalance > 0 ? 'Defisit' : 'Surplus'} {Math.abs(weeklyStats.calorieBalance)} kalori
+                    <strong>Formula:</strong> TDEE ({weeklyStats.tdee} × {weeklyStats.daysWithData} hari) - Kalori Intake + Kalori Workout = {weeklyStats.calorieBalance >= 0 ? 'Defisit' : 'Surplus'} {Math.abs(weeklyStats.calorieBalance)} kalori
                   </div>
+                  {weeklyStats.daysWithData < 7 && (
+                    <div className="mt-1 text-xs text-blue-600">
+                      <strong>Catatan:</strong> Perhitungan berdasarkan {weeklyStats.daysWithData} hari dengan data (bukan 7 hari penuh)
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
