@@ -1,93 +1,85 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Dumbbell, 
-  Plus, 
-  Save, 
-  X, 
   Calendar, 
-  TrendingUp, 
-  TrendingDown, 
-  Activity, 
+  User, 
   Target, 
-  Award,
-  Flame,
-  Heart,
-  Scale,
-  Clock,
-  Upload,
-  Image,
-  Camera,
-  User,
+  TrendingUp, 
+  Award, 
+  Clock, 
+  Moon, 
+  Apple, 
+  Activity,
+  Plus,
+  Save,
   Edit2,
-  Utensils,
-  Moon,
+  X,
+  Upload,
+  Calculator,
+  Zap,
   BarChart3,
-  ChevronLeft,
-  ChevronRight,
-  CheckCircle,
-  AlertCircle,
-  Coffee,
-  Sunrise,
-  Sunset,
-  Cookie
+  Scale,
+  Heart
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
-import { format, subDays, startOfWeek, endOfWeek, addDays, isSameDay, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
-import { id } from 'date-fns/locale';
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, subDays, isToday, isSameDay } from 'date-fns';
 import {
   LineChart,
   Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  AreaChart,
-  Area,
-  BarChart,
-  Bar
+  PieChart,
+  Pie,
+  Cell
 } from 'recharts';
 
+// Types
 interface Profile {
   id: string;
-  age?: number;
-  height?: number;
-  activity_level?: string;
-  target_weight?: number;
-  target_calories?: number;
-  target_workouts_per_week?: number;
-  avatar_url?: string;
-  full_name?: string;
+  full_name: string;
+  avatar_url: string;
+  age: number;
+  height: number;
+  activity_level: string;
+  target_weight: number;
+  target_calories: number;
+  target_workouts_per_week: number;
+  gender?: 'male' | 'female';
 }
 
 interface CalorieEntry {
   id: string;
   food_name: string;
   calories: number;
-  category: 'breakfast' | 'lunch' | 'dinner' | 'snack';
-  description?: string;
+  category: string;
+  description: string;
   date: string;
-  created_at: string;
+  user_id: string;
 }
 
 interface WorkoutEntry {
   id: string;
   exercise_name: string;
-  type: 'duration' | 'reps';
-  duration_minutes?: number;
-  repetitions?: number;
+  type: string;
+  duration_minutes: number;
+  repetitions: number;
   calories_burned: number;
   date: string;
-  created_at: string;
+  user_id: string;
 }
 
 interface WeightEntry {
   id: string;
   weight: number;
-  body_fat?: number;
+  body_fat: number;
   date: string;
-  created_at: string;
+  user_id: string;
 }
 
 interface SleepEntry {
@@ -96,188 +88,211 @@ interface SleepEntry {
   wake_time: string;
   duration_hours: number;
   date: string;
-  created_at: string;
+  user_id: string;
 }
 
-interface WeeklyAchievement {
-  id: string;
-  title: string;
-  description: string;
-  achieved: boolean;
-  icon: React.ReactNode;
-  color: string;
+interface BMRCalculation {
+  bmr: number;
+  tdee: number;
+  formula: string;
+  activityMultiplier: number;
+  recommendedCalories: {
+    maintain: number;
+    mildWeightLoss: number;
+    weightLoss: number;
+    extremeWeightLoss: number;
+    mildWeightGain: number;
+    weightGain: number;
+    extremeWeightGain: number;
+  };
 }
 
 const BodyTracker: React.FC = () => {
+  // State management
   const [activeTab, setActiveTab] = useState<'dashboard' | 'profile' | 'progress' | 'calories' | 'workouts' | 'sleep'>('dashboard');
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedWeek, setSelectedWeek] = useState(new Date());
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  
+  // Data states
   const [profile, setProfile] = useState<Profile | null>(null);
   const [calorieEntries, setCalorieEntries] = useState<CalorieEntry[]>([]);
   const [workoutEntries, setWorkoutEntries] = useState<WorkoutEntry[]>([]);
   const [weightEntries, setWeightEntries] = useState<WeightEntry[]>([]);
   const [sleepEntries, setSleepEntries] = useState<SleepEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [editingProfile, setEditingProfile] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [selectedWeek, setSelectedWeek] = useState(new Date());
-  const [showCalendar, setShowCalendar] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   
+  // Form states
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [showCalorieForm, setShowCalorieForm] = useState(false);
+  const [showWorkoutForm, setShowWorkoutForm] = useState(false);
+  const [showWeightForm, setShowWeightForm] = useState(false);
+  const [showSleepForm, setShowSleepForm] = useState(false);
+  
+  const { user } = useAuth();
+
+  // BMR and TDEE Calculation Functions
+  const calculateBMR = useCallback((profile: Profile, currentWeight?: number): BMRCalculation | null => {
+    if (!profile.age || !profile.height || (!currentWeight && !profile.target_weight)) {
+      return null;
+    }
+
+    const weight = currentWeight || profile.target_weight;
+    const age = profile.age;
+    const height = profile.height;
+    const gender = profile.gender || 'male'; // Default to male if not specified
+
+    let bmr: number;
+    let formula: string;
+
+    // Mifflin-St Jeor Equation (more accurate than Harris-Benedict)
+    if (gender === 'male') {
+      bmr = (10 * weight) + (6.25 * height) - (5 * age) + 5;
+      formula = 'Mifflin-St Jeor (Male)';
+    } else {
+      bmr = (10 * weight) + (6.25 * height) - (5 * age) - 161;
+      formula = 'Mifflin-St Jeor (Female)';
+    }
+
+    // Activity level multipliers
+    const activityMultipliers = {
+      sedentary: 1.2,           // Little/no exercise
+      lightly_active: 1.375,    // Light exercise 1-3 days/week
+      moderately_active: 1.55,  // Moderate exercise 3-5 days/week
+      very_active: 1.725,       // Hard exercise 6-7 days/week
+      extremely_active: 1.9     // Very hard exercise, physical job
+    };
+
+    const activityMultiplier = activityMultipliers[profile.activity_level as keyof typeof activityMultipliers] || 1.55;
+    const tdee = bmr * activityMultiplier;
+
+    // Calculate recommended calories for different goals
+    const recommendedCalories = {
+      maintain: Math.round(tdee),
+      mildWeightLoss: Math.round(tdee - 250),      // 0.25 kg/week loss
+      weightLoss: Math.round(tdee - 500),          // 0.5 kg/week loss
+      extremeWeightLoss: Math.round(tdee - 750),   // 0.75 kg/week loss
+      mildWeightGain: Math.round(tdee + 250),      // 0.25 kg/week gain
+      weightGain: Math.round(tdee + 500),          // 0.5 kg/week gain
+      extremeWeightGain: Math.round(tdee + 750)    // 0.75 kg/week gain
+    };
+
+    return {
+      bmr: Math.round(bmr),
+      tdee: Math.round(tdee),
+      formula,
+      activityMultiplier,
+      recommendedCalories
+    };
+  }, []);
+
+  // Get current weight from latest weight entry
+  const getCurrentWeight = useCallback(() => {
+    if (weightEntries.length === 0) return null;
+    return weightEntries[0].weight; // Already sorted by date desc
+  }, [weightEntries]);
+
+  // Calculate BMR/TDEE with current or target weight
+  const bmrCalculation = useMemo(() => {
+    if (!profile) return null;
+    const currentWeight = getCurrentWeight();
+    return calculateBMR(profile, currentWeight);
+  }, [profile, calculateBMR, getCurrentWeight]);
+
+  // Fetch all data
+  const fetchData = useCallback(async () => {
+    if (!user?.id) return;
+    
+    setLoading(true);
+    try {
+      const [profileRes, caloriesRes, workoutsRes, weightRes, sleepRes] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', user.id).single(),
+        supabase.from('calorie_entries').select('*').eq('user_id', user.id).order('date', { ascending: false }),
+        supabase.from('workout_entries').select('*').eq('user_id', user.id).order('date', { ascending: false }),
+        supabase.from('weight_entries').select('*').eq('user_id', user.id).order('date', { ascending: false }),
+        supabase.from('sleep_entries').select('*').eq('user_id', user.id).order('date', { ascending: false })
+      ]);
+
+      if (profileRes.data) setProfile(profileRes.data);
+      if (caloriesRes.data) setCalorieEntries(caloriesRes.data);
+      if (workoutsRes.data) setWorkoutEntries(workoutsRes.data);
+      if (weightRes.data) setWeightEntries(weightRes.data);
+      if (sleepRes.data) setSleepEntries(sleepRes.data);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Profile form handlers
   const [profileForm, setProfileForm] = useState({
+    full_name: '',
     age: '',
     height: '',
+    gender: 'male' as 'male' | 'female',
     activity_level: 'moderately_active',
     target_weight: '',
-    target_calories: '',
     target_workouts_per_week: '3',
     avatar_url: ''
   });
 
-  const [calorieForm, setCalorieForm] = useState({
-    food_name: '',
-    calories: '',
-    category: 'breakfast' as 'breakfast' | 'lunch' | 'dinner' | 'snack',
-    description: ''
-  });
-
-  const [workoutForm, setWorkoutForm] = useState({
-    exercise_name: '',
-    type: 'duration' as 'duration' | 'reps',
-    duration_minutes: '',
-    repetitions: '',
-    calories_burned: '',
-    isDuration: true,
-    isReps: false
-  });
-
-  const [sleepForm, setSleepForm] = useState({
-    sleep_time: '',
-    wake_time: '',
-    duration_hours: ''
-  });
-
-  const [weightForm, setWeightForm] = useState({
-    weight: '',
-    body_fat: ''
-  });
-
-  const { user } = useAuth();
-
   useEffect(() => {
-    if (user) {
-      fetchAllData();
+    if (profile) {
+      setProfileForm({
+        full_name: profile.full_name || '',
+        age: profile.age?.toString() || '',
+        height: profile.height?.toString() || '',
+        gender: (profile.gender as 'male' | 'female') || 'male',
+        activity_level: profile.activity_level || 'moderately_active',
+        target_weight: profile.target_weight?.toString() || '',
+        target_workouts_per_week: profile.target_workouts_per_week?.toString() || '3',
+        avatar_url: profile.avatar_url || ''
+      });
     }
-  }, [user]);
+  }, [profile]);
 
-  const fetchAllData = async () => {
-    try {
-      await Promise.all([
-        fetchProfile(),
-        fetchCalorieEntries(),
-        fetchWorkoutEntries(),
-        fetchWeightEntries(),
-        fetchSleepEntries()
-      ]);
-    } catch (error) {
-      console.error('Error fetching body tracker data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const handleProfileSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
 
-  const fetchProfile = async () => {
     try {
+      const updatedProfile = {
+        full_name: profileForm.full_name,
+        age: parseInt(profileForm.age) || null,
+        height: parseFloat(profileForm.height) || null,
+        gender: profileForm.gender,
+        activity_level: profileForm.activity_level,
+        target_weight: parseFloat(profileForm.target_weight) || null,
+        target_workouts_per_week: parseInt(profileForm.target_workouts_per_week) || 3,
+        avatar_url: profileForm.avatar_url,
+        updated_at: new Date().toISOString()
+      };
+
       const { data, error } = await supabase
         .from('profiles')
-        .select('*')
-        .eq('id', user?.id)
+        .upsert({ id: user?.id, ...updatedProfile })
+        .select()
         .single();
 
-      if (error && error.code !== 'PGRST116') throw error;
+      if (error) throw error;
       
-      if (data) {
-        setProfile(data);
-        setProfileForm({
-          age: data.age?.toString() || '',
-          height: data.height?.toString() || '',
-          activity_level: data.activity_level || 'moderately_active',
-          target_weight: data.target_weight?.toString() || '',
-          target_calories: data.target_calories?.toString() || '',
-          target_workouts_per_week: data.target_workouts_per_week?.toString() || '3',
-          avatar_url: data.avatar_url || ''
-        });
-      }
+      setProfile(data);
+      setEditingProfile(false);
     } catch (error) {
-      console.error('Error fetching profile:', error);
+      console.error('Error updating profile:', error);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const fetchCalorieEntries = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('calorie_entries')
-        .select('*')
-        .eq('user_id', user?.id)
-        .order('date', { ascending: false })
-        .limit(50);
-
-      if (error) throw error;
-      setCalorieEntries(data || []);
-    } catch (error) {
-      console.error('Error fetching calorie entries:', error);
-    }
-  };
-
-  const fetchWorkoutEntries = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('workout_entries')
-        .select('*')
-        .eq('user_id', user?.id)
-        .order('date', { ascending: false })
-        .limit(50);
-
-      if (error) throw error;
-      setWorkoutEntries(data || []);
-    } catch (error) {
-      console.error('Error fetching workout entries:', error);
-    }
-  };
-
-  const fetchWeightEntries = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('weight_entries')
-        .select('*')
-        .eq('user_id', user?.id)
-        .order('date', { ascending: false })
-        .limit(50);
-
-      if (error) throw error;
-      setWeightEntries(data || []);
-    } catch (error) {
-      console.error('Error fetching weight entries:', error);
-    }
-  };
-
-  const fetchSleepEntries = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('sleep_entries')
-        .select('*')
-        .eq('user_id', user?.id)
-        .order('date', { ascending: false })
-        .limit(50);
-
-      if (error) throw error;
-      setSleepEntries(data || []);
-    } catch (error) {
-      console.error('Error fetching sleep entries:', error);
-    }
-  };
-
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  // Avatar upload handler
+  const handleAvatarUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -315,58 +330,97 @@ const BodyTracker: React.FC = () => {
           ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
           
           const resizedDataUrl = canvas.toDataURL('image/png', 0.9);
-          setProfileForm({ ...profileForm, avatar_url: resizedDataUrl });
+          setProfileForm(prev => ({ ...prev, avatar_url: resizedDataUrl }));
         }
-        setUploading(false);
-      };
-      
-      img.onerror = () => {
-        alert('Invalid image file');
         setUploading(false);
       };
       
       img.src = e.target?.result as string;
     };
     
-    reader.onerror = () => {
-      alert('Failed to read file');
-      setUploading(false);
-    };
-    
     reader.readAsDataURL(file);
   };
 
-  const saveProfile = async () => {
-    try {
-      const profileData = {
-        age: profileForm.age ? parseInt(profileForm.age) : null,
-        height: profileForm.height ? parseFloat(profileForm.height) : null,
-        activity_level: profileForm.activity_level,
-        target_weight: profileForm.target_weight ? parseFloat(profileForm.target_weight) : null,
-        target_calories: profileForm.target_calories ? parseInt(profileForm.target_calories) : null,
-        target_workouts_per_week: profileForm.target_workouts_per_week ? parseInt(profileForm.target_workouts_per_week) : 3,
-        avatar_url: profileForm.avatar_url || null,
-        updated_at: new Date().toISOString()
-      };
+  // Weekly achievements calculation
+  const getWeeklyAchievements = useCallback(() => {
+    const weekStart = startOfWeek(selectedWeek, { weekStartsOn: 1 });
+    const weekEnd = endOfWeek(selectedWeek, { weekStartsOn: 1 });
+    
+    const weekCalories = calorieEntries.filter(entry => {
+      const entryDate = new Date(entry.date);
+      return entryDate >= weekStart && entryDate <= weekEnd;
+    });
+    
+    const weekWorkouts = workoutEntries.filter(entry => {
+      const entryDate = new Date(entry.date);
+      return entryDate >= weekStart && entryDate <= weekEnd;
+    });
+    
+    const weekSleep = sleepEntries.filter(entry => {
+      const entryDate = new Date(entry.date);
+      return entryDate >= weekStart && entryDate <= weekEnd;
+    });
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .upsert({ id: user?.id, ...profileData })
-        .select()
-        .single();
-
-      if (error) throw error;
-      
-      setProfile(data);
-      setEditingProfile(false);
-    } catch (error) {
-      console.error('Error saving profile:', error);
+    const achievements = [];
+    
+    // Workout goals
+    if (weekWorkouts.length >= (profile?.target_workouts_per_week || 3)) {
+      achievements.push({
+        title: 'Workout Goal Achieved! 💪',
+        description: `Completed ${weekWorkouts.length} workouts this week`,
+        type: 'success'
+      });
     }
-  };
+    
+    // Calorie tracking consistency
+    if (weekCalories.length >= 5) {
+      achievements.push({
+        title: 'Consistent Tracking! 📊',
+        description: `Tracked calories for ${weekCalories.length} days`,
+        type: 'info'
+      });
+    }
+    
+    // Sleep consistency
+    if (weekSleep.length >= 5) {
+      achievements.push({
+        title: 'Sleep Tracking Master! 😴',
+        description: `Logged sleep for ${weekSleep.length} days`,
+        type: 'success'
+      });
+    }
 
-  const addCalorieEntry = async () => {
+    // BMR/TDEE Achievement
+    if (bmrCalculation && weekCalories.length > 0) {
+      const avgDailyCalories = weekCalories.reduce((sum, entry) => sum + entry.calories, 0) / weekCalories.length;
+      const targetCalories = bmrCalculation.recommendedCalories.maintain;
+      
+      if (Math.abs(avgDailyCalories - targetCalories) <= 200) {
+        achievements.push({
+          title: 'Perfect Calorie Balance! ⚖️',
+          description: `Average intake matches your TDEE target`,
+          type: 'success'
+        });
+      }
+    }
+    
+    return achievements;
+  }, [selectedWeek, calorieEntries, workoutEntries, sleepEntries, profile, bmrCalculation]);
+
+  // Calorie form handlers
+  const [calorieForm, setCalorieForm] = useState({
+    food_name: '',
+    calories: '',
+    category: 'breakfast',
+    description: ''
+  });
+
+  const handleCalorieSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('calorie_entries')
         .insert([{
           food_name: calorieForm.food_name,
@@ -375,23 +429,35 @@ const BodyTracker: React.FC = () => {
           description: calorieForm.description,
           date: format(selectedDate, 'yyyy-MM-dd'),
           user_id: user?.id
-        }])
-        .select()
-        .single();
+        }]);
 
       if (error) throw error;
       
-      setCalorieEntries([data, ...calorieEntries]);
       setCalorieForm({ food_name: '', calories: '', category: 'breakfast', description: '' });
-      setShowAddForm(false);
+      setShowCalorieForm(false);
+      fetchData();
     } catch (error) {
       console.error('Error adding calorie entry:', error);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const addWorkoutEntry = async () => {
+  // Workout form handlers
+  const [workoutForm, setWorkoutForm] = useState({
+    exercise_name: '',
+    type: 'duration',
+    duration_minutes: '',
+    repetitions: '',
+    calories_burned: ''
+  });
+
+  const handleWorkoutSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('workout_entries')
         .insert([{
           exercise_name: workoutForm.exercise_name,
@@ -401,380 +467,321 @@ const BodyTracker: React.FC = () => {
           calories_burned: parseInt(workoutForm.calories_burned),
           date: format(selectedDate, 'yyyy-MM-dd'),
           user_id: user?.id
-        }])
-        .select()
-        .single();
+        }]);
 
       if (error) throw error;
       
-      setWorkoutEntries([data, ...workoutEntries]);
-      setWorkoutForm({
-        exercise_name: '',
-        type: 'duration',
-        duration_minutes: '',
-        repetitions: '',
-        calories_burned: '',
-        isDuration: true,
-        isReps: false
-      });
-      setShowAddForm(false);
+      setWorkoutForm({ exercise_name: '', type: 'duration', duration_minutes: '', repetitions: '', calories_burned: '' });
+      setShowWorkoutForm(false);
+      fetchData();
     } catch (error) {
       console.error('Error adding workout entry:', error);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const addSleepEntry = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('sleep_entries')
-        .insert([{
-          sleep_time: sleepForm.sleep_time,
-          wake_time: sleepForm.wake_time,
-          duration_hours: parseFloat(sleepForm.duration_hours),
-          date: format(selectedDate, 'yyyy-MM-dd'),
-          user_id: user?.id
-        }])
-        .select()
-        .single();
+  // Weight form handlers
+  const [weightForm, setWeightForm] = useState({
+    weight: '',
+    body_fat: ''
+  });
 
-      if (error) throw error;
-      
-      setSleepEntries([data, ...sleepEntries]);
-      setSleepForm({ sleep_time: '', wake_time: '', duration_hours: '' });
-      setShowAddForm(false);
-    } catch (error) {
-      console.error('Error adding sleep entry:', error);
-    }
-  };
+  const handleWeightSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
 
-  const addWeightEntry = async () => {
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('weight_entries')
-        .insert([{
+        .upsert([{
           weight: parseFloat(weightForm.weight),
           body_fat: weightForm.body_fat ? parseFloat(weightForm.body_fat) : null,
           date: format(selectedDate, 'yyyy-MM-dd'),
           user_id: user?.id
-        }])
-        .select()
-        .single();
+        }]);
 
       if (error) throw error;
       
-      setWeightEntries([data, ...weightEntries]);
       setWeightForm({ weight: '', body_fat: '' });
-      setShowAddForm(false);
+      setShowWeightForm(false);
+      fetchData();
     } catch (error) {
       console.error('Error adding weight entry:', error);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const getWeeklyStats = () => {
-    const weekStart = startOfWeek(selectedWeek, { weekStartsOn: 1 });
-    const weekEnd = endOfWeek(selectedWeek, { weekStartsOn: 1 });
-    
-    const weekStartStr = format(weekStart, 'yyyy-MM-dd');
-    const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
-    
-    const weekWorkouts = workoutEntries.filter(entry => 
-      entry.date >= weekStartStr && entry.date <= weekEndStr
-    );
-    
-    const weekCalories = calorieEntries.filter(entry => 
-      entry.date >= weekStartStr && entry.date <= weekEndStr
-    );
-    
-    const weekSleep = sleepEntries.filter(entry => 
-      entry.date >= weekStartStr && entry.date <= weekEndStr
-    );
+  // Sleep form handlers
+  const [sleepForm, setSleepForm] = useState({
+    sleep_time: '',
+    wake_time: ''
+  });
 
-    const totalCaloriesIn = weekCalories.reduce((sum, entry) => sum + entry.calories, 0);
-    const totalCaloriesBurned = weekWorkouts.reduce((sum, entry) => sum + entry.calories_burned, 0);
-    const averageSleep = weekSleep.length > 0 
-      ? weekSleep.reduce((sum, entry) => sum + entry.duration_hours, 0) / weekSleep.length 
-      : 0;
-
-    return {
-      workouts: weekWorkouts.length,
-      targetWorkouts: profile?.target_workouts_per_week || 3,
-      caloriesIn: totalCaloriesIn,
-      caloriesBurned: totalCaloriesBurned,
-      calorieBalance: totalCaloriesIn - totalCaloriesBurned,
-      averageSleep: Math.round(averageSleep * 10) / 10,
-      sleepDays: weekSleep.length
-    };
+  const calculateSleepDuration = (sleepTime: string, wakeTime: string): number => {
+    const sleep = new Date(`2000-01-01 ${sleepTime}`);
+    let wake = new Date(`2000-01-01 ${wakeTime}`);
+    
+    if (wake <= sleep) {
+      wake = new Date(`2000-01-02 ${wakeTime}`);
+    }
+    
+    const diffMs = wake.getTime() - sleep.getTime();
+    return diffMs / (1000 * 60 * 60);
   };
 
-  const getWeeklyAchievements = (): WeeklyAchievement[] => {
-    const stats = getWeeklyStats();
-    
-    return [
-      {
-        id: 'workout_goal',
-        title: 'Workout Goal',
-        description: `Complete ${stats.targetWorkouts} workouts this week`,
-        achieved: stats.workouts >= stats.targetWorkouts,
-        icon: <Dumbbell className="w-5 h-5" />,
-        color: stats.workouts >= stats.targetWorkouts ? 'text-green-600' : 'text-gray-400'
-      },
-      {
-        id: 'calorie_tracking',
-        title: 'Calorie Tracking',
-        description: 'Track calories for 5+ days this week',
-        achieved: stats.caloriesIn > 0,
-        icon: <Flame className="w-5 h-5" />,
-        color: stats.caloriesIn > 0 ? 'text-orange-600' : 'text-gray-400'
-      },
-      {
-        id: 'sleep_consistency',
-        title: 'Sleep Consistency',
-        description: 'Log sleep for 5+ days this week',
-        achieved: stats.sleepDays >= 5,
-        icon: <Moon className="w-5 h-5" />,
-        color: stats.sleepDays >= 5 ? 'text-purple-600' : 'text-gray-400'
-      },
-      {
-        id: 'calorie_balance',
-        title: 'Calorie Balance',
-        description: 'Maintain healthy calorie balance',
-        achieved: Math.abs(stats.calorieBalance) <= 500,
-        icon: <Scale className="w-5 h-5" />,
-        color: Math.abs(stats.calorieBalance) <= 500 ? 'text-blue-600' : 'text-gray-400'
-      }
-    ];
-  };
+  const handleSleepSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
 
-  const getWeightProgressData = () => {
-    return weightEntries
-      .slice(0, 30)
-      .reverse()
-      .map(entry => ({
-        date: format(new Date(entry.date), 'MMM dd'),
-        weight: entry.weight,
-        bodyFat: entry.body_fat || 0
-      }));
-  };
-
-  const getSleepProgressData = () => {
-    const last30Days = eachDayOfInterval({
-      start: subDays(new Date(), 29),
-      end: new Date()
-    });
-
-    return last30Days.map(date => {
-      const dateStr = format(date, 'yyyy-MM-dd');
-      const sleepEntry = sleepEntries.find(entry => entry.date === dateStr);
+    try {
+      const duration = calculateSleepDuration(sleepForm.sleep_time, sleepForm.wake_time);
       
-      return {
-        date: format(date, 'MMM dd'),
-        hours: sleepEntry?.duration_hours || 0
-      };
-    });
-  };
+      const { error } = await supabase
+        .from('sleep_entries')
+        .upsert([{
+          sleep_time: sleepForm.sleep_time,
+          wake_time: sleepForm.wake_time,
+          duration_hours: duration,
+          date: format(selectedDate, 'yyyy-MM-dd'),
+          user_id: user?.id
+        }]);
 
-  const getCategoryIcon = (category: string) => {
-    switch (category) {
-      case 'breakfast': return <Sunrise className="w-4 h-4 text-yellow-500" />;
-      case 'lunch': return <Coffee className="w-4 h-4 text-orange-500" />;
-      case 'dinner': return <Sunset className="w-4 h-4 text-red-500" />;
-      case 'snack': return <Cookie className="w-4 h-4 text-purple-500" />;
-      default: return <Utensils className="w-4 h-4 text-gray-500" />;
+      if (error) throw error;
+      
+      setSleepForm({ sleep_time: '', wake_time: '' });
+      setShowSleepForm(false);
+      fetchData();
+    } catch (error) {
+      console.error('Error adding sleep entry:', error);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const getCategoryLabel = (category: string) => {
-    switch (category) {
-      case 'breakfast': return 'Sarapan';
-      case 'lunch': return 'Makan Siang';
-      case 'dinner': return 'Makan Malam';
-      case 'snack': return 'Cemilan';
-      default: return category;
-    }
+  // Get today's entries
+  const getTodaysEntries = (entries: any[], dateField = 'date') => {
+    const today = format(selectedDate, 'yyyy-MM-dd');
+    return entries.filter(entry => entry[dateField] === today);
   };
 
-  const navigateWeek = (direction: 'prev' | 'next') => {
-    if (direction === 'prev') {
-      setSelectedWeek(prev => subDays(prev, 7));
-    } else {
-      setSelectedWeek(prev => addDays(prev, 7));
-    }
+  // Chart data preparation
+  const getWeightChartData = () => {
+    return weightEntries.slice(0, 30).reverse().map(entry => ({
+      date: format(new Date(entry.date), 'MMM dd'),
+      weight: entry.weight,
+      body_fat: entry.body_fat
+    }));
   };
 
-  const getSelectedDateEntries = (type: 'calories' | 'workouts' | 'sleep') => {
-    const dateStr = format(selectedDate, 'yyyy-MM-dd');
-    
-    switch (type) {
-      case 'calories':
-        return calorieEntries.filter(entry => entry.date === dateStr);
-      case 'workouts':
-        return workoutEntries.filter(entry => entry.date === dateStr);
-      case 'sleep':
-        return sleepEntries.filter(entry => entry.date === dateStr);
-      default:
-        return [];
-    }
+  const getSleepChartData = () => {
+    return sleepEntries.slice(0, 30).reverse().map(entry => ({
+      date: format(new Date(entry.date), 'MMM dd'),
+      hours: entry.duration_hours
+    }));
+  };
+
+  // Activity level labels
+  const activityLevels = {
+    sedentary: 'Sedentary (Little/no exercise)',
+    lightly_active: 'Lightly Active (Light exercise 1-3 days/week)',
+    moderately_active: 'Moderately Active (Moderate exercise 3-5 days/week)',
+    very_active: 'Very Active (Hard exercise 6-7 days/week)',
+    extremely_active: 'Extremely Active (Very hard exercise, physical job)'
   };
 
   if (loading) {
     return (
-      <div className="card animate-fadeIn">
-        <div className="animate-pulse">
-          <div className="h-6 bg-gray-200 rounded w-1/4 mb-4"></div>
-          <div className="space-y-3">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="h-16 bg-gray-200 rounded"></div>
-            ))}
+      <div className="space-y-6">
+        <div className="card animate-fadeIn">
+          <div className="animate-pulse">
+            <div className="h-6 bg-gray-200 rounded w-1/4 mb-4"></div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="h-24 bg-gray-200 rounded"></div>
+              ))}
+            </div>
+            <div className="h-64 bg-gray-200 rounded"></div>
           </div>
         </div>
       </div>
     );
   }
 
-  const weeklyStats = getWeeklyStats();
-  const achievements = getWeeklyAchievements();
-  const weightProgressData = getWeightProgressData();
-  const sleepProgressData = getSleepProgressData();
-
   return (
     <div className="space-y-6">
       {/* Tab Navigation */}
-      <div className="tab-nav">
-        <nav className="flex space-x-6 overflow-x-auto">
+      <div className="card animate-fadeIn">
+        <div className="flex flex-wrap gap-2 p-1 bg-gray-100 rounded-xl">
           {[
-            { id: 'dashboard', label: 'Dashboard', icon: <Activity className="w-4 h-4" />, color: 'text-blue-600' },
-            { id: 'profile', label: 'Profile', icon: <User className="w-4 h-4" />, color: 'text-gray-600' },
-            { id: 'progress', label: 'Progress', icon: <TrendingUp className="w-4 h-4" />, color: 'text-purple-600' },
-            { id: 'calories', label: 'Calories', icon: <Flame className="w-4 h-4" />, color: 'text-orange-600' },
-            { id: 'workouts', label: 'Workouts', icon: <Dumbbell className="w-4 h-4" />, color: 'text-blue-600' },
-            { id: 'sleep', label: 'Sleep', icon: <Moon className="w-4 h-4" />, color: 'text-purple-600' }
+            { id: 'dashboard', label: 'Dashboard', icon: BarChart3, color: 'from-blue-500 to-purple-600' },
+            { id: 'profile', label: 'Profile', icon: User, color: 'from-green-500 to-blue-500' },
+            { id: 'progress', label: 'Progress', icon: TrendingUp, color: 'from-purple-500 to-pink-500' },
+            { id: 'calories', label: 'Calories', icon: Apple, color: 'from-orange-500 to-red-500' },
+            { id: 'workouts', label: 'Workouts', icon: Dumbbell, color: 'from-blue-500 to-indigo-600' },
+            { id: 'sleep', label: 'Sleep', icon: Moon, color: 'from-indigo-500 to-purple-600' }
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`tab-nav-item flex items-center space-x-2 whitespace-nowrap ${
-                activeTab === tab.id ? 'active' : ''
+              className={`flex items-center space-x-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-all duration-200 hover-lift ${
+                activeTab === tab.id
+                  ? `bg-gradient-to-r ${tab.color} text-white shadow-lg`
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-white'
               }`}
             >
-              <span className={tab.color}>{tab.icon}</span>
-              <span>{tab.label}</span>
+              <tab.icon className="w-4 h-4" />
+              <span className="hidden sm:block">{tab.label}</span>
             </button>
           ))}
-        </nav>
+        </div>
       </div>
 
       {/* Dashboard Tab */}
       {activeTab === 'dashboard' && (
         <div className="space-y-6">
-          {/* Weekly Report Header */}
-          <div className="card animate-fadeIn" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
-            <div className="text-white">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
-                    <Calendar className="w-4 h-4 text-white" />
-                  </div>
-                  <h2 className="text-lg font-semibold">Weekly Report</h2>
+          {/* Week Navigation */}
+          <div className="card animate-fadeIn">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center">
+                <Calendar className="w-5 h-5 mr-2 text-blue-600" />
+                Weekly Report
+              </h2>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setSelectedWeek(subDays(selectedWeek, 7))}
+                  className="btn-icon-secondary"
+                >
+                  ←
+                </button>
+                <span className="text-sm font-medium text-gray-700 px-3">
+                  {format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), 'MMM dd')} - {format(endOfWeek(selectedWeek, { weekStartsOn: 1 }), 'MMM dd, yyyy')}
+                </span>
+                <button
+                  onClick={() => setSelectedWeek(new Date())}
+                  className="btn-secondary text-xs"
+                  disabled={isSameDay(selectedWeek, new Date())}
+                >
+                  This Week
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Stats */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <div className="stat-card bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+                <div className="stat-value text-blue-600">
+                  {getTodaysEntries(workoutEntries).length}
                 </div>
-                
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => navigateWeek('prev')}
-                    className="p-2 bg-white bg-opacity-20 rounded-lg hover:bg-opacity-30 transition-all duration-200"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="text-sm font-medium px-3">
-                    {format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), 'MMM dd')} - {format(endOfWeek(selectedWeek, { weekStartsOn: 1 }), 'MMM dd, yyyy')}
-                  </span>
-                  <button
-                    onClick={() => navigateWeek('next')}
-                    className="p-2 bg-white bg-opacity-20 rounded-lg hover:bg-opacity-30 transition-all duration-200"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
+                <div className="stat-label text-blue-700">Today's Workouts</div>
               </div>
               
-              <div className="grid-4">
-                <div className="text-center">
-                  <div className="text-2xl font-bold">{weeklyStats.workouts}</div>
-                  <div className="text-sm opacity-90">Workouts</div>
+              <div className="stat-card bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
+                <div className="stat-value text-orange-600">
+                  {getTodaysEntries(calorieEntries).reduce((sum, entry) => sum + entry.calories, 0)}
                 </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold">{weeklyStats.caloriesIn}</div>
-                  <div className="text-sm opacity-90">Calories In</div>
+                <div className="stat-label text-orange-700">Calories Today</div>
+              </div>
+              
+              <div className="stat-card bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+                <div className="stat-value text-purple-600">
+                  {getTodaysEntries(sleepEntries)[0]?.duration_hours?.toFixed(1) || '0'}h
                 </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold">{weeklyStats.caloriesBurned}</div>
-                  <div className="text-sm opacity-90">Calories Out</div>
+                <div className="stat-label text-purple-700">Last Sleep</div>
+              </div>
+              
+              <div className="stat-card bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+                <div className="stat-value text-green-600">
+                  {bmrCalculation?.tdee || 0}
                 </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold">{weeklyStats.averageSleep}h</div>
-                  <div className="text-sm opacity-90">Avg Sleep</div>
-                </div>
+                <div className="stat-label text-green-700">TDEE (kcal)</div>
               </div>
             </div>
-          </div>
 
-          {/* Weekly Achievements */}
-          <div className="card animate-fadeIn">
-            <div className="card-header">
-              <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-yellow-500 rounded-lg flex items-center justify-center">
-                  <Award className="w-4 h-4 text-white" />
+            {/* BMR/TDEE Information */}
+            {bmrCalculation && (
+              <div className="p-4 bg-gradient-to-r from-green-50 to-blue-50 rounded-xl border border-green-200 mb-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold text-gray-900 flex items-center">
+                    <Calculator className="w-5 h-5 mr-2 text-green-600" />
+                    Your Metabolic Profile
+                  </h3>
+                  <span className="text-xs text-gray-500">{bmrCalculation.formula}</span>
                 </div>
-                <h2 className="card-title">Weekly Achievements</h2>
-              </div>
-            </div>
-            
-            <div className="grid-2">
-              {achievements.map((achievement) => (
-                <div
-                  key={achievement.id}
-                  className={`p-4 rounded-lg border-2 transition-all duration-200 ${
-                    achievement.achieved
-                      ? 'bg-green-50 border-green-200'
-                      : 'bg-gray-50 border-gray-200'
-                  }`}
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className={`${achievement.color}`}>
-                      {achievement.achieved ? <CheckCircle className="w-6 h-6" /> : achievement.icon}
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div className="bg-white p-3 rounded-lg border border-gray-200">
+                    <div className="text-sm text-gray-600 mb-1">Basal Metabolic Rate (BMR)</div>
+                    <div className="text-xl font-bold text-gray-900">{bmrCalculation.bmr} kcal/day</div>
+                    <div className="text-xs text-gray-500">Calories burned at rest</div>
+                  </div>
+                  
+                  <div className="bg-white p-3 rounded-lg border border-gray-200">
+                    <div className="text-sm text-gray-600 mb-1">Total Daily Energy Expenditure (TDEE)</div>
+                    <div className="text-xl font-bold text-green-600">{bmrCalculation.tdee} kcal/day</div>
+                    <div className="text-xs text-gray-500">Including activity level ({bmrCalculation.activityMultiplier}x)</div>
+                  </div>
+                </div>
+
+                {/* Calorie Recommendations */}
+                <div className="bg-white p-4 rounded-lg border border-gray-200">
+                  <h4 className="font-medium text-gray-900 mb-3 flex items-center">
+                    <Target className="w-4 h-4 mr-2 text-blue-600" />
+                    Calorie Recommendations
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div className="text-center p-2 bg-red-50 rounded-lg">
+                      <div className="font-semibold text-red-600">{bmrCalculation.recommendedCalories.weightLoss}</div>
+                      <div className="text-red-500">Weight Loss</div>
+                      <div className="text-gray-500">-0.5kg/week</div>
                     </div>
-                    <div>
-                      <h3 className="font-medium text-gray-900">{achievement.title}</h3>
-                      <p className="text-sm text-gray-600">{achievement.description}</p>
+                    <div className="text-center p-2 bg-yellow-50 rounded-lg">
+                      <div className="font-semibold text-yellow-600">{bmrCalculation.recommendedCalories.mildWeightLoss}</div>
+                      <div className="text-yellow-500">Mild Loss</div>
+                      <div className="text-gray-500">-0.25kg/week</div>
+                    </div>
+                    <div className="text-center p-2 bg-green-50 rounded-lg border-2 border-green-300">
+                      <div className="font-semibold text-green-600">{bmrCalculation.recommendedCalories.maintain}</div>
+                      <div className="text-green-500">Maintain</div>
+                      <div className="text-gray-500">Current weight</div>
+                    </div>
+                    <div className="text-center p-2 bg-blue-50 rounded-lg">
+                      <div className="font-semibold text-blue-600">{bmrCalculation.recommendedCalories.weightGain}</div>
+                      <div className="text-blue-500">Weight Gain</div>
+                      <div className="text-gray-500">+0.5kg/week</div>
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
+            )}
 
-          {/* Quick Stats */}
-          <div className="grid-3">
-            <div className="card animate-fadeIn" style={{ background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' }}>
-              <div className="text-white text-center">
-                <Flame className="w-8 h-8 mx-auto mb-2" />
-                <div className="text-2xl font-bold">{weeklyStats.calorieBalance > 0 ? '+' : ''}{weeklyStats.calorieBalance}</div>
-                <div className="text-sm opacity-90">Calorie Balance</div>
-              </div>
-            </div>
-            
-            <div className="card animate-fadeIn" style={{ background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' }}>
-              <div className="text-white text-center">
-                <Target className="w-8 h-8 mx-auto mb-2" />
-                <div className="text-2xl font-bold">{Math.round((weeklyStats.workouts / weeklyStats.targetWorkouts) * 100)}%</div>
-                <div className="text-sm opacity-90">Workout Goal</div>
-              </div>
-            </div>
-            
-            <div className="card animate-fadeIn" style={{ background: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)' }}>
-              <div className="text-gray-800 text-center">
-                <Moon className="w-8 h-8 mx-auto mb-2" />
-                <div className="text-2xl font-bold">{weeklyStats.sleepDays}/7</div>
-                <div className="text-sm opacity-90">Sleep Tracked</div>
+            {/* Weekly Achievements */}
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-3 flex items-center">
+                <Award className="w-5 h-5 mr-2 text-yellow-600" />
+                Weekly Achievements
+              </h3>
+              <div className="space-y-2">
+                {getWeeklyAchievements().map((achievement, index) => (
+                  <div
+                    key={index}
+                    className={`p-3 rounded-lg border ${
+                      achievement.type === 'success'
+                        ? 'bg-green-50 border-green-200 text-green-800'
+                        : 'bg-blue-50 border-blue-200 text-blue-800'
+                    }`}
+                  >
+                    <div className="font-medium">{achievement.title}</div>
+                    <div className="text-sm opacity-90">{achievement.description}</div>
+                  </div>
+                ))}
+                {getWeeklyAchievements().length === 0 && (
+                  <div className="text-center py-6 text-gray-500">
+                    <Award className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                    <p className="text-sm">Complete activities this week to earn achievements!</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -785,25 +792,23 @@ const BodyTracker: React.FC = () => {
       {activeTab === 'profile' && (
         <div className="card animate-fadeIn">
           <div className="card-header">
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
-                <User className="w-4 h-4 text-white" />
-              </div>
-              <h2 className="card-title">Body Profile</h2>
-            </div>
+            <h2 className="card-title flex items-center">
+              <User className="w-5 h-5 mr-2 text-green-600" />
+              Body Profile
+            </h2>
             {!editingProfile && (
               <button
                 onClick={() => setEditingProfile(true)}
                 className="btn-secondary"
               >
                 <Edit2 className="w-4 h-4 mr-2" />
-                Edit
+                Edit Profile
               </button>
             )}
           </div>
-          
+
           {editingProfile ? (
-            <div className="space-y-6">
+            <form onSubmit={handleProfileSave} className="space-y-6">
               {/* Avatar Upload */}
               <div className="flex items-center space-x-6">
                 <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden">
@@ -812,44 +817,44 @@ const BodyTracker: React.FC = () => {
                       src={profileForm.avatar_url}
                       alt="Profile"
                       className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                        e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                      }}
                     />
-                  ) : null}
-                  <User className={`w-8 h-8 text-gray-400 ${profileForm.avatar_url ? 'hidden' : ''}`} />
+                  ) : (
+                    <User className="w-8 h-8 text-gray-400" />
+                  )}
                 </div>
                 <div>
                   <input
-                    ref={fileInputRef}
                     type="file"
                     accept="image/*"
-                    onChange={handleFileUpload}
+                    onChange={handleAvatarUpload}
                     className="hidden"
+                    id="avatar-upload"
                   />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploading}
-                    className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                  <label
+                    htmlFor="avatar-upload"
+                    className="btn-secondary cursor-pointer"
                   >
                     <Upload className="w-4 h-4 mr-2" />
                     {uploading ? 'Uploading...' : 'Upload Photo'}
-                  </button>
-                  {profileForm.avatar_url && (
-                    <button
-                      type="button"
-                      onClick={() => setProfileForm({ ...profileForm, avatar_url: '' })}
-                      className="ml-2 text-sm text-red-600 hover:text-red-700"
-                    >
-                      Remove
-                    </button>
-                  )}
+                  </label>
                 </div>
               </div>
 
-              <div className="grid-2">
+              {/* Form Fields */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Full Name
+                  </label>
+                  <input
+                    type="text"
+                    value={profileForm.full_name}
+                    onChange={(e) => setProfileForm(prev => ({ ...prev, full_name: e.target.value }))}
+                    className="input"
+                    placeholder="Enter your name"
+                  />
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Age
@@ -857,14 +862,28 @@ const BodyTracker: React.FC = () => {
                   <input
                     type="number"
                     value={profileForm.age}
-                    onChange={(e) => setProfileForm({ ...profileForm, age: e.target.value })}
-                    placeholder="Enter your age"
+                    onChange={(e) => setProfileForm(prev => ({ ...prev, age: e.target.value }))}
                     className="input"
+                    placeholder="Age"
                     min="10"
                     max="120"
                   />
                 </div>
-                
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Gender
+                  </label>
+                  <select
+                    value={profileForm.gender}
+                    onChange={(e) => setProfileForm(prev => ({ ...prev, gender: e.target.value as 'male' | 'female' }))}
+                    className="input"
+                  >
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                  </select>
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Height (cm)
@@ -872,11 +891,43 @@ const BodyTracker: React.FC = () => {
                   <input
                     type="number"
                     value={profileForm.height}
-                    onChange={(e) => setProfileForm({ ...profileForm, height: e.target.value })}
-                    placeholder="Enter your height"
+                    onChange={(e) => setProfileForm(prev => ({ ...prev, height: e.target.value }))}
                     className="input"
+                    placeholder="Height in cm"
                     min="50"
                     max="300"
+                    step="0.1"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Target Weight (kg)
+                  </label>
+                  <input
+                    type="number"
+                    value={profileForm.target_weight}
+                    onChange={(e) => setProfileForm(prev => ({ ...prev, target_weight: e.target.value }))}
+                    className="input"
+                    placeholder="Target weight"
+                    min="20"
+                    max="300"
+                    step="0.1"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Workouts/Week
+                  </label>
+                  <input
+                    type="number"
+                    value={profileForm.target_workouts_per_week}
+                    onChange={(e) => setProfileForm(prev => ({ ...prev, target_workouts_per_week: e.target.value }))}
+                    className="input"
+                    placeholder="Target workouts"
+                    min="0"
+                    max="14"
                   />
                 </div>
               </div>
@@ -887,153 +938,97 @@ const BodyTracker: React.FC = () => {
                 </label>
                 <select
                   value={profileForm.activity_level}
-                  onChange={(e) => setProfileForm({ ...profileForm, activity_level: e.target.value })}
+                  onChange={(e) => setProfileForm(prev => ({ ...prev, activity_level: e.target.value }))}
                   className="input"
                 >
-                  <option value="sedentary">Sedentary</option>
-                  <option value="lightly_active">Lightly Active</option>
-                  <option value="moderately_active">Moderately Active</option>
-                  <option value="very_active">Very Active</option>
-                  <option value="extremely_active">Extremely Active</option>
+                  {Object.entries(activityLevels).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
                 </select>
               </div>
 
-              <div className="grid-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Target Weight (kg)
-                  </label>
-                  <input
-                    type="number"
-                    value={profileForm.target_weight}
-                    onChange={(e) => setProfileForm({ ...profileForm, target_weight: e.target.value })}
-                    placeholder="Target weight"
-                    className="input"
-                    min="20"
-                    max="300"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Target Calories
-                  </label>
-                  <input
-                    type="number"
-                    value={profileForm.target_calories}
-                    onChange={(e) => setProfileForm({ ...profileForm, target_calories: e.target.value })}
-                    placeholder="Daily calorie target"
-                    className="input"
-                    min="800"
-                    max="5000"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Weekly Workouts
-                  </label>
-                  <input
-                    type="number"
-                    value={profileForm.target_workouts_per_week}
-                    onChange={(e) => setProfileForm({ ...profileForm, target_workouts_per_week: e.target.value })}
-                    placeholder="Workouts per week"
-                    className="input"
-                    min="0"
-                    max="14"
-                  />
-                </div>
-              </div>
-
+              {/* Action Buttons */}
               <div className="flex space-x-3">
                 <button
-                  onClick={saveProfile}
-                  className="btn-primary"
+                  type="submit"
+                  disabled={saving}
+                  className="btn-primary disabled:opacity-50"
                 >
                   <Save className="w-4 h-4 mr-2" />
-                  Save Profile
+                  {saving ? 'Saving...' : 'Save Profile'}
                 </button>
                 <button
+                  type="button"
                   onClick={() => setEditingProfile(false)}
                   className="btn-secondary"
                 >
+                  <X className="w-4 h-4 mr-2" />
                   Cancel
                 </button>
               </div>
-            </div>
+            </form>
           ) : (
             <div className="space-y-6">
-              {profile ? (
-                <>
-                  {/* Profile Display */}
-                  <div className="flex items-center space-x-6">
-                    <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden">
-                      {profile.avatar_url ? (
-                        <img
-                          src={profile.avatar_url}
-                          alt="Profile"
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                            e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                          }}
-                        />
-                      ) : null}
-                      <User className={`w-8 h-8 text-gray-400 ${profile.avatar_url ? 'hidden' : ''}`} />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900">
-                        {profile.full_name || 'Your Profile'}
-                      </h3>
-                      <p className="text-gray-600">Body tracking profile</p>
-                    </div>
-                  </div>
+              {/* Profile Display */}
+              <div className="flex items-center space-x-6">
+                <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden">
+                  {profile?.avatar_url ? (
+                    <img
+                      src={profile.avatar_url}
+                      alt="Profile"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <User className="w-8 h-8 text-gray-400" />
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-xl font-semibold text-gray-900">
+                    {profile?.full_name || 'No name set'}
+                  </h3>
+                  <p className="text-gray-600">
+                    {profile?.age ? `${profile.age} years old` : 'Age not set'}
+                  </p>
+                </div>
+              </div>
 
-                  <div className="grid-3">
-                    <div className="space-y-4">
-                      <div>
-                        <span className="text-sm font-medium text-gray-700">Age:</span>
-                        <span className="ml-2 text-gray-900">{profile.age || 'Not set'}</span>
-                      </div>
-                      <div>
-                        <span className="text-sm font-medium text-gray-700">Height:</span>
-                        <span className="ml-2 text-gray-900">{profile.height ? `${profile.height} cm` : 'Not set'}</span>
-                      </div>
-                    </div>
-                    <div className="space-y-4">
-                      <div>
-                        <span className="text-sm font-medium text-gray-700">Activity Level:</span>
-                        <span className="ml-2 text-gray-900 capitalize">{profile.activity_level?.replace('_', ' ') || 'Not set'}</span>
-                      </div>
-                      <div>
-                        <span className="text-sm font-medium text-gray-700">Target Weight:</span>
-                        <span className="ml-2 text-gray-900">{profile.target_weight ? `${profile.target_weight} kg` : 'Not set'}</span>
-                      </div>
-                    </div>
-                    <div className="space-y-4">
-                      <div>
-                        <span className="text-sm font-medium text-gray-700">Target Calories:</span>
-                        <span className="ml-2 text-gray-900">{profile.target_calories || 'Not set'}</span>
-                      </div>
-                      <div>
-                        <span className="text-sm font-medium text-gray-700">Weekly Workouts:</span>
-                        <span className="ml-2 text-gray-900">{profile.target_workouts_per_week || 3}</span>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <User className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p className="text-sm">No profile data yet</p>
+              {/* Profile Info Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="stat-card">
+                  <div className="stat-value text-blue-600">{profile?.height || 0} cm</div>
+                  <div className="stat-label">Height</div>
+                </div>
+                
+                <div className="stat-card">
+                  <div className="stat-value text-green-600">{profile?.target_weight || 0} kg</div>
+                  <div className="stat-label">Target Weight</div>
+                </div>
+                
+                <div className="stat-card">
+                  <div className="stat-value text-purple-600">{profile?.target_workouts_per_week || 0}/week</div>
+                  <div className="stat-label">Workout Goal</div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <h4 className="font-medium text-gray-900 mb-2">Activity Level</h4>
+                <p className="text-sm text-gray-600">
+                  {activityLevels[profile?.activity_level as keyof typeof activityLevels] || 'Not set'}
+                </p>
+              </div>
+
+              {!profile?.age || !profile?.height ? (
+                <div className="text-center py-8">
+                  <User className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500 mb-4">Complete your profile to get accurate BMR/TDEE calculations</p>
                   <button
                     onClick={() => setEditingProfile(true)}
-                    className="btn-primary mt-4"
+                    className="btn-primary"
                   >
-                    Set up your profile
+                    Complete Profile
                   </button>
                 </div>
-              )}
+              ) : null}
             </div>
           )}
         </div>
@@ -1042,147 +1037,110 @@ const BodyTracker: React.FC = () => {
       {/* Progress Tab */}
       {activeTab === 'progress' && (
         <div className="space-y-6">
-          {/* Weight Progress Chart */}
+          {/* Weight Progress */}
           <div className="card animate-fadeIn">
             <div className="card-header">
-              <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center">
-                  <TrendingUp className="w-4 h-4 text-white" />
-                </div>
-                <h2 className="card-title">Weight Progress</h2>
-              </div>
+              <h2 className="card-title flex items-center">
+                <Scale className="w-5 h-5 mr-2 text-purple-600" />
+                Weight Progress
+              </h2>
               <button
-                onClick={() => {
-                  setActiveTab('progress');
-                  setShowAddForm(true);
-                }}
+                onClick={() => setShowWeightForm(true)}
                 className="btn-primary"
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Add Weight
               </button>
             </div>
-            
-            {weightProgressData.length > 0 ? (
-              <div className="h-64">
+
+            {/* Weight Chart */}
+            <div className="h-64 mb-6">
+              {getWeightChartData().length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={weightProgressData}>
+                  <LineChart data={getWeightChartData()}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis 
-                      dataKey="date" 
-                      tick={{ fontSize: 12 }}
-                      interval="preserveStartEnd"
-                    />
+                    <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                     <YAxis tick={{ fontSize: 12 }} />
-                    <Tooltip 
-                      contentStyle={{
-                        backgroundColor: 'white',
-                        border: '1px solid #e5e7eb',
-                        borderRadius: '8px',
-                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                      }}
-                    />
+                    <Tooltip />
                     <Line
                       type="monotone"
                       dataKey="weight"
                       stroke="#8b5cf6"
                       strokeWidth={3}
-                      dot={{ fill: '#8b5cf6', strokeWidth: 2, r: 6 }}
-                      activeDot={{ r: 8, stroke: '#8b5cf6', strokeWidth: 2 }}
+                      dot={{ fill: '#8b5cf6', strokeWidth: 2, r: 5 }}
                     />
                   </LineChart>
                 </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="text-center py-8 text-gray-500">
-                <Scale className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                <p className="text-sm">No weight entries yet</p>
-                <p className="text-xs text-gray-400">Start tracking your weight to see progress</p>
+              ) : (
+                <div className="flex items-center justify-center h-full text-gray-500">
+                  <div className="text-center">
+                    <Scale className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                    <p>No weight data yet</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Fitness Goals Integration */}
+            {profile && (
+              <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+                <h3 className="font-semibold text-purple-900 mb-3 flex items-center">
+                  <Target className="w-5 h-5 mr-2" />
+                  Fitness Goals
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-sm text-purple-700 mb-1">Target Weight</div>
+                    <div className="text-xl font-bold text-purple-900">{profile.target_weight || 0} kg</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-purple-700 mb-1">Current Weight</div>
+                    <div className="text-xl font-bold text-purple-900">
+                      {getCurrentWeight() || profile.target_weight || 0} kg
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
-          </div>
 
-          {/* Fitness Goals Integration */}
-          {profile && (
-            <div className="card animate-fadeIn">
-              <div className="card-header">
-                <h3 className="card-title">Fitness Goals</h3>
+            {/* Statistics */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+              <div className="stat-card">
+                <div className="stat-value text-purple-600">
+                  {getCurrentWeight() || 0} kg
+                </div>
+                <div className="stat-label">Current Weight</div>
               </div>
               
-              <div className="grid-2">
-                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-blue-700">Target Weight</span>
-                    <Target className="w-4 h-4 text-blue-600" />
-                  </div>
-                  <div className="text-2xl font-bold text-blue-600">
-                    {profile.target_weight ? `${profile.target_weight} kg` : 'Not set'}
-                  </div>
-                  {weightEntries.length > 0 && profile.target_weight && (
-                    <div className="text-xs text-blue-600 mt-1">
-                      {weightEntries[0].weight > profile.target_weight ? 
-                        `${(weightEntries[0].weight - profile.target_weight).toFixed(1)} kg to lose` :
-                        `${(profile.target_weight - weightEntries[0].weight).toFixed(1)} kg to gain`
-                      }
-                    </div>
-                  )}
-                </div>
-                
-                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-green-700">Weekly Workouts</span>
-                    <Dumbbell className="w-4 h-4 text-green-600" />
-                  </div>
-                  <div className="text-2xl font-bold text-green-600">
-                    {weeklyStats.workouts}/{profile.target_workouts_per_week || 3}
-                  </div>
-                  <div className="w-full bg-green-200 rounded-full h-2 mt-2">
-                    <div 
-                      className="bg-green-600 h-2 rounded-full transition-all duration-300"
-                      style={{ 
-                        width: `${Math.min((weeklyStats.workouts / (profile.target_workouts_per_week || 3)) * 100, 100)}%` 
-                      }}
-                    ></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Statistics */}
-          <div className="card animate-fadeIn">
-            <div className="card-header">
-              <h3 className="card-title">Statistics</h3>
-            </div>
-            
-            <div className="grid-4">
-              <div className="text-center p-4 bg-gray-50 rounded-lg">
-                <div className="text-2xl font-bold text-gray-900">
-                  {weightEntries.length > 0 ? `${weightEntries[0].weight} kg` : '-'}
-                </div>
-                <div className="text-sm text-gray-600">Current Weight</div>
-              </div>
-              
-              <div className="text-center p-4 bg-gray-50 rounded-lg">
-                <div className="text-2xl font-bold text-gray-900">
-                  {weightEntries.length > 1 ? 
-                    `${weightEntries[0].weight - weightEntries[1].weight > 0 ? '+' : ''}${(weightEntries[0].weight - weightEntries[1].weight).toFixed(1)} kg` : 
-                    '-'
+              <div className="stat-card">
+                <div className="stat-value text-green-600">
+                  {weightEntries.length >= 2 
+                    ? `${(weightEntries[0].weight - weightEntries[1].weight) >= 0 ? '+' : ''}${(weightEntries[0].weight - weightEntries[1].weight).toFixed(1)}kg`
+                    : '0kg'
                   }
                 </div>
-                <div className="text-sm text-gray-600">Weekly Change</div>
+                <div className="stat-label">Weekly Change</div>
               </div>
               
-              <div className="text-center p-4 bg-gray-50 rounded-lg">
-                <div className="text-2xl font-bold text-gray-900">{weeklyStats.workouts}</div>
-                <div className="text-sm text-gray-600">Workouts Done</div>
-              </div>
-              
-              <div className="text-center p-4 bg-gray-50 rounded-lg">
-                <div className={`text-2xl font-bold ${weeklyStats.calorieBalance > 0 ? 'text-red-600' : weeklyStats.calorieBalance < 0 ? 'text-green-600' : 'text-gray-900'}`}>
-                  {weeklyStats.calorieBalance > 0 ? 'Surplus' : weeklyStats.calorieBalance < 0 ? 'Deficit' : 'Balanced'}
+              <div className="stat-card">
+                <div className="stat-value text-blue-600">
+                  {workoutEntries.filter(w => {
+                    const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+                    return new Date(w.date) >= weekStart;
+                  }).length}
                 </div>
-                <div className="text-sm text-gray-600">Calorie Status</div>
+                <div className="stat-label">Workouts Done</div>
+              </div>
+              
+              <div className="stat-card">
+                <div className="stat-value text-orange-600">
+                  {bmrCalculation ? (
+                    getTodaysEntries(calorieEntries).reduce((sum, entry) => sum + entry.calories, 0) > bmrCalculation.tdee
+                      ? 'Surplus'
+                      : 'Deficit'
+                  ) : 'N/A'}
+                </div>
+                <div className="stat-label">Calorie Status</div>
               </div>
             </div>
           </div>
@@ -1192,116 +1150,103 @@ const BodyTracker: React.FC = () => {
       {/* Calories Tab */}
       {activeTab === 'calories' && (
         <div className="space-y-6">
-          {/* Date Selection */}
-          <div className="card animate-fadeIn" style={{ background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' }}>
-            <div className="text-white">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
-                    <Flame className="w-4 h-4 text-white" />
-                  </div>
-                  <h2 className="text-lg font-semibold">Calorie Tracking</h2>
-                </div>
-                
+          {/* Date Header */}
+          <div className="card animate-fadeIn bg-gradient-to-r from-orange-500 to-red-500 text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold flex items-center">
+                  <Apple className="w-5 h-5 mr-2" />
+                  Calorie Tracking
+                </h2>
+                <p className="text-orange-100 text-sm">
+                  {format(selectedDate, 'EEEE, MMMM d, yyyy')}
+                </p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="date"
+                  value={format(selectedDate, 'yyyy-MM-dd')}
+                  onChange={(e) => setSelectedDate(new Date(e.target.value))}
+                  className="px-3 py-2 rounded-lg bg-white/20 text-white placeholder-orange-200 border border-white/30 text-sm"
+                />
                 <button
-                  onClick={() => setShowCalendar(!showCalendar)}
-                  className="flex items-center space-x-2 px-3 py-2 bg-white bg-opacity-20 rounded-lg hover:bg-opacity-30 transition-all duration-200"
+                  onClick={() => setShowCalorieForm(true)}
+                  className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200"
                 >
-                  <Calendar className="w-4 h-4" />
-                  <span className="text-sm font-medium">
-                    {format(selectedDate, 'MMM dd, yyyy')}
-                  </span>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Food
                 </button>
               </div>
-              
-              {showCalendar && (
-                <div className="mt-4 p-3 bg-white bg-opacity-20 rounded-lg">
-                  <input
-                    type="date"
-                    value={format(selectedDate, 'yyyy-MM-dd')}
-                    onChange={(e) => {
-                      setSelectedDate(new Date(e.target.value));
-                      setShowCalendar(false);
-                    }}
-                    className="input bg-white text-gray-900"
-                  />
-                </div>
-              )}
             </div>
-          </div>
-
-          {/* Add Entry Button */}
-          <div className="flex justify-end">
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="btn-primary"
-              style={{ background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)', border: 'none' }}
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Add Food Entry
-            </button>
           </div>
 
           {/* Today's Entries */}
           <div className="card animate-fadeIn">
-            <div className="card-header">
-              <h3 className="card-title">
-                Food Intake - {format(selectedDate, 'EEEE, MMM dd')}
-              </h3>
-              <div className="text-sm text-gray-600">
-                {getSelectedDateEntries('calories').reduce((sum: number, entry: any) => sum + entry.calories, 0)} calories
-              </div>
-            </div>
-            
+            <h3 className="font-semibold text-gray-900 mb-4">Today's Food Intake</h3>
             <div className="space-y-3">
-              {getSelectedDateEntries('calories').length > 0 ? (
-                getSelectedDateEntries('calories').map((entry: any) => (
-                  <div key={entry.id} className="flex items-center justify-between p-3 bg-orange-50 rounded-lg border border-orange-200">
-                    <div className="flex items-center space-x-3">
-                      {getCategoryIcon(entry.category)}
-                      <div>
-                        <span className="font-medium text-gray-900">{entry.food_name}</span>
-                        <div className="text-xs text-gray-500">
-                          {getCategoryLabel(entry.category)}
-                          {entry.description && ` • ${entry.description}`}
-                        </div>
+              {getTodaysEntries(calorieEntries).map((entry) => (
+                <div key={entry.id} className="p-3 bg-orange-50 rounded-lg border border-orange-200">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-medium text-gray-900">{entry.food_name}</h4>
+                      <p className="text-sm text-gray-600">{entry.description}</p>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-semibold text-orange-600">{entry.calories} kcal</div>
+                      <div className="text-xs text-gray-500 capitalize">
+                        {entry.category === 'breakfast' && '🌅 Sarapan'}
+                        {entry.category === 'lunch' && '☀️ Makan Siang'}
+                        {entry.category === 'dinner' && '🌙 Makan Malam'}
+                        {entry.category === 'snack' && '🍪 Cemilan'}
                       </div>
                     </div>
-                    <span className="font-medium text-orange-600">{entry.calories} cal</span>
                   </div>
-                ))
-              ) : (
+                </div>
+              ))}
+              {getTodaysEntries(calorieEntries).length === 0 && (
                 <div className="text-center py-8 text-gray-500">
-                  <Utensils className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p className="text-sm">No food entries for this date</p>
-                  <p className="text-xs text-gray-400">Add your first meal above</p>
+                  <Apple className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                  <p>No food entries for today</p>
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Recent Entries */}
-          <div className="card animate-fadeIn">
-            <div className="card-header">
-              <h3 className="card-title">Recent Entries</h3>
-            </div>
-            
-            <div className="space-y-2">
-              {calorieEntries.slice(0, 10).map((entry) => (
-                <div key={entry.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    {getCategoryIcon(entry.category)}
-                    <div>
-                      <span className="font-medium text-gray-900">{entry.food_name}</span>
-                      <div className="text-xs text-gray-500">
-                        {getCategoryLabel(entry.category)} • {format(new Date(entry.date), 'MMM dd')}
-                      </div>
+            {/* Daily Summary */}
+            {bmrCalculation && (
+              <div className="mt-6 p-4 bg-gradient-to-r from-orange-50 to-red-50 rounded-lg border border-orange-200">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                  <div>
+                    <div className="text-lg font-bold text-orange-600">
+                      {getTodaysEntries(calorieEntries).reduce((sum, entry) => sum + entry.calories, 0)}
                     </div>
+                    <div className="text-xs text-gray-600">Consumed</div>
                   </div>
-                  <span className="font-medium text-orange-600">{entry.calories} cal</span>
+                  <div>
+                    <div className="text-lg font-bold text-green-600">
+                      {bmrCalculation.recommendedCalories.maintain}
+                    </div>
+                    <div className="text-xs text-gray-600">Target (TDEE)</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-bold text-blue-600">
+                      {bmrCalculation.recommendedCalories.maintain - getTodaysEntries(calorieEntries).reduce((sum, entry) => sum + entry.calories, 0)}
+                    </div>
+                    <div className="text-xs text-gray-600">Remaining</div>
+                  </div>
+                  <div>
+                    <div className={`text-lg font-bold ${
+                      getTodaysEntries(calorieEntries).reduce((sum, entry) => sum + entry.calories, 0) > bmrCalculation.recommendedCalories.maintain
+                        ? 'text-red-600' : 'text-green-600'
+                    }`}>
+                      {getTodaysEntries(calorieEntries).reduce((sum, entry) => sum + entry.calories, 0) > bmrCalculation.recommendedCalories.maintain
+                        ? 'Surplus' : 'Deficit'
+                      }
+                    </div>
+                    <div className="text-xs text-gray-600">Status</div>
+                  </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1309,121 +1254,65 @@ const BodyTracker: React.FC = () => {
       {/* Workouts Tab */}
       {activeTab === 'workouts' && (
         <div className="space-y-6">
-          {/* Date Selection */}
-          <div className="card animate-fadeIn" style={{ background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' }}>
-            <div className="text-white">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
-                    <Dumbbell className="w-4 h-4 text-white" />
-                  </div>
-                  <h2 className="text-lg font-semibold">Workout Tracking</h2>
-                </div>
-                
+          {/* Date Header */}
+          <div className="card animate-fadeIn bg-gradient-to-r from-blue-500 to-indigo-600 text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold flex items-center">
+                  <Dumbbell className="w-5 h-5 mr-2" />
+                  Workout Tracking
+                </h2>
+                <p className="text-blue-100 text-sm">
+                  {format(selectedDate, 'EEEE, MMMM d, yyyy')}
+                </p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="date"
+                  value={format(selectedDate, 'yyyy-MM-dd')}
+                  onChange={(e) => setSelectedDate(new Date(e.target.value))}
+                  className="px-3 py-2 rounded-lg bg-white/20 text-white placeholder-blue-200 border border-white/30 text-sm"
+                />
                 <button
-                  onClick={() => setShowCalendar(!showCalendar)}
-                  className="flex items-center space-x-2 px-3 py-2 bg-white bg-opacity-20 rounded-lg hover:bg-opacity-30 transition-all duration-200"
+                  onClick={() => setShowWorkoutForm(true)}
+                  className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200"
                 >
-                  <Calendar className="w-4 h-4" />
-                  <span className="text-sm font-medium">
-                    {format(selectedDate, 'MMM dd, yyyy')}
-                  </span>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Workout
                 </button>
               </div>
-              
-              {showCalendar && (
-                <div className="mt-4 p-3 bg-white bg-opacity-20 rounded-lg">
-                  <input
-                    type="date"
-                    value={format(selectedDate, 'yyyy-MM-dd')}
-                    onChange={(e) => {
-                      setSelectedDate(new Date(e.target.value));
-                      setShowCalendar(false);
-                    }}
-                    className="input bg-white text-gray-900"
-                  />
-                </div>
-              )}
             </div>
-          </div>
-
-          {/* Add Workout Button */}
-          <div className="flex justify-end">
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="btn-primary"
-              style={{ background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', border: 'none' }}
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Add Workout
-            </button>
           </div>
 
           {/* Today's Workouts */}
           <div className="card animate-fadeIn">
-            <div className="card-header">
-              <h3 className="card-title">
-                Workouts - {format(selectedDate, 'EEEE, MMM dd')}
-              </h3>
-              <div className="text-sm text-gray-600">
-                {getSelectedDateEntries('workouts').reduce((sum: number, entry: any) => sum + entry.calories_burned, 0)} calories burned
-              </div>
-            </div>
-            
+            <h3 className="font-semibold text-gray-900 mb-4">Today's Workouts</h3>
             <div className="space-y-3">
-              {getSelectedDateEntries('workouts').length > 0 ? (
-                getSelectedDateEntries('workouts').map((entry: any) => (
-                  <div key={entry.id} className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
-                    <div className="flex items-center space-x-3">
-                      <Dumbbell className="w-5 h-5 text-blue-600" />
-                      <div>
-                        <span className="font-medium text-gray-900">{entry.exercise_name}</span>
-                        <div className="text-xs text-gray-500">
-                          {entry.type === 'duration' 
-                            ? `${entry.duration_minutes} minutes`
-                            : `${entry.repetitions}x reps`
-                          }
-                        </div>
-                      </div>
-                    </div>
-                    <span className="font-medium text-red-600">{entry.calories_burned} cal</span>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <Dumbbell className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p className="text-sm">No workouts for this date</p>
-                  <p className="text-xs text-gray-400">Add your first workout above</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Recent Workouts */}
-          <div className="card animate-fadeIn">
-            <div className="card-header">
-              <h3 className="card-title">Recent Workouts</h3>
-            </div>
-            
-            <div className="space-y-2">
-              {workoutEntries.slice(0, 10).map((entry) => (
-                <div key={entry.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <Dumbbell className="w-4 h-4 text-blue-600" />
+              {getTodaysEntries(workoutEntries).map((entry) => (
+                <div key={entry.id} className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-center justify-between">
                     <div>
-                      <span className="font-medium text-gray-900">{entry.exercise_name}</span>
-                      <div className="text-xs text-gray-500">
-                        {format(new Date(entry.date), 'MMM dd')} • 
+                      <h4 className="font-medium text-gray-900">{entry.exercise_name}</h4>
+                      <p className="text-sm text-gray-600">
                         {entry.type === 'duration' 
-                          ? ` ${entry.duration_minutes} min`
-                          : ` ${entry.repetitions}x`
+                          ? `${entry.duration_minutes} minutes`
+                          : `${entry.repetitions}x reps`
                         }
-                      </div>
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-semibold text-blue-600">{entry.calories_burned} kcal</div>
+                      <div className="text-xs text-gray-500 capitalize">{entry.type}</div>
                     </div>
                   </div>
-                  <span className="font-medium text-red-600">{entry.calories_burned} cal</span>
                 </div>
               ))}
+              {getTodaysEntries(workoutEntries).length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  <Dumbbell className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                  <p>No workouts for today</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1432,517 +1321,476 @@ const BodyTracker: React.FC = () => {
       {/* Sleep Tab */}
       {activeTab === 'sleep' && (
         <div className="space-y-6">
-          {/* Date Selection */}
-          <div className="card animate-fadeIn" style={{ background: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)' }}>
-            <div className="text-gray-800">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 bg-white bg-opacity-30 rounded-lg flex items-center justify-center">
-                    <Moon className="w-4 h-4 text-gray-800" />
-                  </div>
-                  <h2 className="text-lg font-semibold">Sleep Tracking</h2>
-                </div>
-                
+          {/* Date Header */}
+          <div className="card animate-fadeIn bg-gradient-to-r from-indigo-500 to-purple-600 text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold flex items-center">
+                  <Moon className="w-5 h-5 mr-2" />
+                  Sleep Tracking
+                </h2>
+                <p className="text-indigo-100 text-sm">
+                  {format(selectedDate, 'EEEE, MMMM d, yyyy')}
+                </p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="date"
+                  value={format(selectedDate, 'yyyy-MM-dd')}
+                  onChange={(e) => setSelectedDate(new Date(e.target.value))}
+                  className="px-3 py-2 rounded-lg bg-white/20 text-white placeholder-indigo-200 border border-white/30 text-sm"
+                />
                 <button
-                  onClick={() => setShowCalendar(!showCalendar)}
-                  className="flex items-center space-x-2 px-3 py-2 bg-white bg-opacity-30 rounded-lg hover:bg-opacity-40 transition-all duration-200"
+                  onClick={() => setShowSleepForm(true)}
+                  className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200"
                 >
-                  <Calendar className="w-4 h-4" />
-                  <span className="text-sm font-medium">
-                    {format(selectedDate, 'MMM dd, yyyy')}
-                  </span>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Log Sleep
                 </button>
               </div>
-              
-              {showCalendar && (
-                <div className="mt-4 p-3 bg-white bg-opacity-30 rounded-lg">
-                  <input
-                    type="date"
-                    value={format(selectedDate, 'yyyy-MM-dd')}
-                    onChange={(e) => {
-                      setSelectedDate(new Date(e.target.value));
-                      setShowCalendar(false);
-                    }}
-                    className="input bg-white text-gray-900"
-                  />
-                </div>
-              )}
             </div>
           </div>
 
-          {/* Sleep Progress Chart */}
+          {/* Sleep Pattern Chart */}
           <div className="card animate-fadeIn">
-            <div className="card-header">
-              <h3 className="card-title">Sleep Pattern (Last 30 Days)</h3>
-            </div>
-            
-            {sleepProgressData.length > 0 ? (
-              <div className="h-64">
+            <h3 className="font-semibold text-gray-900 mb-4">Sleep Pattern (Last 30 Days)</h3>
+            <div className="h-64">
+              {getSleepChartData().length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={sleepProgressData}>
+                  <AreaChart data={getSleepChartData()}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis 
-                      dataKey="date" 
-                      tick={{ fontSize: 12 }}
-                      interval="preserveStartEnd"
-                    />
+                    <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                     <YAxis tick={{ fontSize: 12 }} domain={[0, 12]} />
-                    <Tooltip 
-                      contentStyle={{
-                        backgroundColor: 'white',
-                        border: '1px solid #e5e7eb',
-                        borderRadius: '8px',
-                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                      }}
-                    />
+                    <Tooltip />
                     <Area
                       type="monotone"
                       dataKey="hours"
                       stroke="#8b5cf6"
-                      fill="#8b5cf6"
-                      fillOpacity={0.3}
+                      fill="url(#sleepGradient)"
                       strokeWidth={2}
                     />
+                    <defs>
+                      <linearGradient id="sleepGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.1}/>
+                      </linearGradient>
+                    </defs>
                   </AreaChart>
                 </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="text-center py-8 text-gray-500">
-                <Moon className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                <p className="text-sm">No sleep data yet</p>
-                <p className="text-xs text-gray-400">Start tracking your sleep patterns</p>
-              </div>
-            )}
-          </div>
-
-          {/* Add Sleep Button */}
-          <div className="flex justify-end">
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="btn-primary"
-              style={{ background: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)', border: 'none', color: '#374151' }}
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Add Sleep Entry
-            </button>
-          </div>
-
-          {/* Today's Sleep */}
-          <div className="card animate-fadeIn">
-            <div className="card-header">
-              <h3 className="card-title">
-                Sleep - {format(selectedDate, 'EEEE, MMM dd')}
-              </h3>
-            </div>
-            
-            <div className="space-y-3">
-              {getSelectedDateEntries('sleep').length > 0 ? (
-                getSelectedDateEntries('sleep').map((entry: any) => (
-                  <div key={entry.id} className="flex items-center justify-between p-3 bg-purple-50 rounded-lg border border-purple-200">
-                    <div className="flex items-center space-x-3">
-                      <Moon className="w-5 h-5 text-purple-600" />
-                      <div>
-                        <span className="font-medium text-gray-900">
-                          {entry.sleep_time} - {entry.wake_time}
-                        </span>
-                        <div className="text-xs text-gray-500">
-                          Sleep duration
-                        </div>
-                      </div>
-                    </div>
-                    <span className="font-medium text-purple-600">{entry.duration_hours}h</span>
-                  </div>
-                ))
               ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <Moon className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p className="text-sm">No sleep entry for this date</p>
-                  <p className="text-xs text-gray-400">Add your sleep data above</p>
+                <div className="flex items-center justify-center h-full text-gray-500">
+                  <div className="text-center">
+                    <Moon className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                    <p>No sleep data yet</p>
+                  </div>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Recent Sleep */}
+          {/* Today's Sleep */}
           <div className="card animate-fadeIn">
-            <div className="card-header">
-              <h3 className="card-title">Recent Sleep</h3>
-            </div>
-            
-            <div className="space-y-2">
-              {sleepEntries.slice(0, 10).map((entry) => (
-                <div key={entry.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <Moon className="w-4 h-4 text-purple-600" />
-                    <div>
-                      <span className="font-medium text-gray-900">{format(new Date(entry.date), 'MMM dd, yyyy')}</span>
-                      <div className="text-xs text-gray-500">
-                        {entry.sleep_time} - {entry.wake_time}
-                      </div>
+            <h3 className="font-semibold text-gray-900 mb-4">Sleep Log</h3>
+            {getTodaysEntries(sleepEntries)[0] ? (
+              <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div>
+                    <div className="text-lg font-bold text-purple-600">
+                      {getTodaysEntries(sleepEntries)[0].sleep_time}
                     </div>
+                    <div className="text-sm text-gray-600">Bedtime</div>
                   </div>
-                  <span className="font-medium text-purple-600">{entry.duration_hours}h</span>
+                  <div>
+                    <div className="text-lg font-bold text-purple-600">
+                      {getTodaysEntries(sleepEntries)[0].wake_time}
+                    </div>
+                    <div className="text-sm text-gray-600">Wake Time</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-bold text-purple-600">
+                      {getTodaysEntries(sleepEntries)[0].duration_hours.toFixed(1)}h
+                    </div>
+                    <div className="text-sm text-gray-600">Duration</div>
+                  </div>
                 </div>
-              ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <Moon className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                <p>No sleep data for today</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Calorie Form Modal */}
+      {showCalorieForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Add Food Entry</h3>
+                <button
+                  onClick={() => setShowCalorieForm(false)}
+                  className="btn-icon-secondary"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleCalorieSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Food Name
+                  </label>
+                  <input
+                    type="text"
+                    value={calorieForm.food_name}
+                    onChange={(e) => setCalorieForm(prev => ({ ...prev, food_name: e.target.value }))}
+                    className="input"
+                    placeholder="Enter food name"
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Calories
+                    </label>
+                    <input
+                      type="number"
+                      value={calorieForm.calories}
+                      onChange={(e) => setCalorieForm(prev => ({ ...prev, calories: e.target.value }))}
+                      className="input"
+                      placeholder="kcal"
+                      required
+                      min="1"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Category
+                    </label>
+                    <select
+                      value={calorieForm.category}
+                      onChange={(e) => setCalorieForm(prev => ({ ...prev, category: e.target.value }))}
+                      className="input"
+                    >
+                      <option value="breakfast">🌅 Sarapan</option>
+                      <option value="lunch">☀️ Makan Siang</option>
+                      <option value="dinner">🌙 Makan Malam</option>
+                      <option value="snack">🍪 Cemilan</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Description (Optional)
+                  </label>
+                  <textarea
+                    value={calorieForm.description}
+                    onChange={(e) => setCalorieForm(prev => ({ ...prev, description: e.target.value }))}
+                    className="textarea"
+                    rows={2}
+                    placeholder="Additional notes..."
+                  />
+                </div>
+
+                <div className="flex space-x-3">
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="flex-1 btn-primary disabled:opacity-50"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    {saving ? 'Saving...' : 'Add Food'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowCalorieForm(false)}
+                    className="btn-secondary"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add Forms Modal */}
-      {showAddForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-25 flex items-center justify-center p-4 z-50 modal-overlay">
-          <div className="modal-content max-h-[90vh] overflow-y-auto">
+      {/* Workout Form Modal */}
+      {showWorkoutForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
             <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {activeTab === 'calories' && 'Add Food Entry'}
-                  {activeTab === 'workouts' && 'Add Workout'}
-                  {activeTab === 'sleep' && 'Add Sleep Entry'}
-                  {activeTab === 'progress' && 'Add Weight Entry'}
-                </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Add Workout</h3>
                 <button
-                  onClick={() => setShowAddForm(false)}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg transition-all duration-200"
+                  onClick={() => setShowWorkoutForm(false)}
+                  className="btn-icon-secondary"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Calorie Form */}
-              {activeTab === 'calories' && (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Food Name
-                    </label>
-                    <input
-                      type="text"
-                      value={calorieForm.food_name}
-                      onChange={(e) => setCalorieForm({ ...calorieForm, food_name: e.target.value })}
-                      placeholder="Enter food name..."
-                      className="input"
-                      required
-                    />
-                  </div>
+              <form onSubmit={handleWorkoutSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Exercise Name
+                  </label>
+                  <input
+                    type="text"
+                    value={workoutForm.exercise_name}
+                    onChange={(e) => setWorkoutForm(prev => ({ ...prev, exercise_name: e.target.value }))}
+                    className="input"
+                    placeholder="Enter exercise name"
+                    required
+                  />
+                </div>
 
-                  <div className="grid-2">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Calories
-                      </label>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Workout Type
+                  </label>
+                  <div className="flex space-x-4">
+                    <label className="flex items-center">
                       <input
-                        type="number"
-                        value={calorieForm.calories}
-                        onChange={(e) => setCalorieForm({ ...calorieForm, calories: e.target.value })}
-                        placeholder="Enter calories..."
-                        className="input"
-                        min="1"
-                        required
+                        type="radio"
+                        value="duration"
+                        checked={workoutForm.type === 'duration'}
+                        onChange={(e) => setWorkoutForm(prev => ({ ...prev, type: e.target.value }))}
+                        className="mr-2"
                       />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Category
-                      </label>
-                      <select
-                        value={calorieForm.category}
-                        onChange={(e) => setCalorieForm({ ...calorieForm, category: e.target.value as any })}
-                        className="input"
-                      >
-                        <option value="breakfast">Sarapan</option>
-                        <option value="lunch">Makan Siang</option>
-                        <option value="dinner">Makan Malam</option>
-                        <option value="snack">Cemilan</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Description (Optional)
+                      Duration-based
                     </label>
-                    <input
-                      type="text"
-                      value={calorieForm.description}
-                      onChange={(e) => setCalorieForm({ ...calorieForm, description: e.target.value })}
-                      placeholder="Additional notes..."
-                      className="input"
-                    />
-                  </div>
-
-                  <div className="flex space-x-3 pt-4">
-                    <button
-                      onClick={addCalorieEntry}
-                      disabled={!calorieForm.food_name || !calorieForm.calories}
-                      className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Save className="w-4 h-4 mr-2" />
-                      Add Entry
-                    </button>
-                    <button
-                      onClick={() => setShowAddForm(false)}
-                      className="btn-secondary"
-                    >
-                      Cancel
-                    </button>
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        value="reps"
+                        checked={workoutForm.type === 'reps'}
+                        onChange={(e) => setWorkoutForm(prev => ({ ...prev, type: e.target.value }))}
+                        className="mr-2"
+                      />
+                      Repetition-based
+                    </label>
                   </div>
                 </div>
-              )}
 
-              {/* Workout Form */}
-              {activeTab === 'workouts' && (
-                <div className="space-y-4">
+                {workoutForm.type === 'duration' ? (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Exercise Name
-                    </label>
-                    <input
-                      type="text"
-                      value={workoutForm.exercise_name}
-                      onChange={(e) => setWorkoutForm({ ...workoutForm, exercise_name: e.target.value })}
-                      placeholder="Enter exercise name..."
-                      className="input"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-3">
-                      Workout Type
-                    </label>
-                    <div className="space-y-2">
-                      <label className="flex items-center space-x-3">
-                        <input
-                          type="checkbox"
-                          checked={workoutForm.isDuration}
-                          onChange={(e) => {
-                            setWorkoutForm({
-                              ...workoutForm,
-                              isDuration: e.target.checked,
-                              isReps: !e.target.checked,
-                              type: e.target.checked ? 'duration' : 'reps'
-                            });
-                          }}
-                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-gray-700">Duration-based workout</span>
-                      </label>
-                      <label className="flex items-center space-x-3">
-                        <input
-                          type="checkbox"
-                          checked={workoutForm.isReps}
-                          onChange={(e) => {
-                            setWorkoutForm({
-                              ...workoutForm,
-                              isReps: e.target.checked,
-                              isDuration: !e.target.checked,
-                              type: e.target.checked ? 'reps' : 'duration'
-                            });
-                          }}
-                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-gray-700">Repetition-based workout</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="grid-2">
-                    {workoutForm.isDuration && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Duration (minutes)
-                        </label>
-                        <input
-                          type="number"
-                          value={workoutForm.duration_minutes}
-                          onChange={(e) => setWorkoutForm({ ...workoutForm, duration_minutes: e.target.value })}
-                          placeholder="Enter duration..."
-                          className="input"
-                          min="1"
-                          required
-                        />
-                      </div>
-                    )}
-
-                    {workoutForm.isReps && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Repetitions
-                        </label>
-                        <input
-                          type="number"
-                          value={workoutForm.repetitions}
-                          onChange={(e) => setWorkoutForm({ ...workoutForm, repetitions: e.target.value })}
-                          placeholder="Enter reps..."
-                          className="input"
-                          min="1"
-                          required
-                        />
-                      </div>
-                    )}
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Calories Burned
-                      </label>
-                      <input
-                        type="number"
-                        value={workoutForm.calories_burned}
-                        onChange={(e) => setWorkoutForm({ ...workoutForm, calories_burned: e.target.value })}
-                        placeholder="Enter calories burned..."
-                        className="input"
-                        min="1"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex space-x-3 pt-4">
-                    <button
-                      onClick={addWorkoutEntry}
-                      disabled={!workoutForm.exercise_name || !workoutForm.calories_burned || 
-                        (workoutForm.isDuration && !workoutForm.duration_minutes) ||
-                        (workoutForm.isReps && !workoutForm.repetitions)}
-                      className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Save className="w-4 h-4 mr-2" />
-                      Add Workout
-                    </button>
-                    <button
-                      onClick={() => setShowAddForm(false)}
-                      className="btn-secondary"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Sleep Form */}
-              {activeTab === 'sleep' && (
-                <div className="space-y-4">
-                  <div className="grid-2">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Sleep Time
-                      </label>
-                      <input
-                        type="time"
-                        value={sleepForm.sleep_time}
-                        onChange={(e) => setSleepForm({ ...sleepForm, sleep_time: e.target.value })}
-                        className="input"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Wake Time
-                      </label>
-                      <input
-                        type="time"
-                        value={sleepForm.wake_time}
-                        onChange={(e) => setSleepForm({ ...sleepForm, wake_time: e.target.value })}
-                        className="input"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Duration (hours)
+                      Duration (minutes)
                     </label>
                     <input
                       type="number"
-                      step="0.5"
-                      value={sleepForm.duration_hours}
-                      onChange={(e) => setSleepForm({ ...sleepForm, duration_hours: e.target.value })}
-                      placeholder="Enter sleep duration..."
+                      value={workoutForm.duration_minutes}
+                      onChange={(e) => setWorkoutForm(prev => ({ ...prev, duration_minutes: e.target.value }))}
                       className="input"
-                      min="0.5"
-                      max="24"
+                      placeholder="Minutes"
                       required
+                      min="1"
                     />
                   </div>
-
-                  <div className="flex space-x-3 pt-4">
-                    <button
-                      onClick={addSleepEntry}
-                      disabled={!sleepForm.sleep_time || !sleepForm.wake_time || !sleepForm.duration_hours}
-                      className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Save className="w-4 h-4 mr-2" />
-                      Add Sleep Entry
-                    </button>
-                    <button
-                      onClick={() => setShowAddForm(false)}
-                      className="btn-secondary"
-                    >
-                      Cancel
-                    </button>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Repetitions
+                    </label>
+                    <input
+                      type="number"
+                      value={workoutForm.repetitions}
+                      onChange={(e) => setWorkoutForm(prev => ({ ...prev, repetitions: e.target.value }))}
+                      className="input"
+                      placeholder="Number of reps"
+                      required
+                      min="1"
+                    />
                   </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Calories Burned
+                  </label>
+                  <input
+                    type="number"
+                    value={workoutForm.calories_burned}
+                    onChange={(e) => setWorkoutForm(prev => ({ ...prev, calories_burned: e.target.value }))}
+                    className="input"
+                    placeholder="kcal burned"
+                    required
+                    min="1"
+                  />
                 </div>
-              )}
 
-              {/* Weight Form */}
-              {activeTab === 'progress' && (
-                <div className="space-y-4">
-                  <div className="grid-2">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Weight (kg)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={weightForm.weight}
-                        onChange={(e) => setWeightForm({ ...weightForm, weight: e.target.value })}
-                        placeholder="Enter weight..."
-                        className="input"
-                        min="20"
-                        max="300"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Body Fat % (Optional)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={weightForm.body_fat}
-                        onChange={(e) => setWeightForm({ ...weightForm, body_fat: e.target.value })}
-                        placeholder="Enter body fat %..."
-                        className="input"
-                        min="0"
-                        max="100"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex space-x-3 pt-4">
-                    <button
-                      onClick={addWeightEntry}
-                      disabled={!weightForm.weight}
-                      className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Save className="w-4 h-4 mr-2" />
-                      Add Weight Entry
-                    </button>
-                    <button
-                      onClick={() => setShowAddForm(false)}
-                      className="btn-secondary"
-                    >
-                      Cancel
-                    </button>
-                  </div>
+                <div className="flex space-x-3">
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="flex-1 btn-primary disabled:opacity-50"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    {saving ? 'Saving...' : 'Add Workout'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowWorkoutForm(false)}
+                    className="btn-secondary"
+                  >
+                    Cancel
+                  </button>
                 </div>
-              )}
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Weight Form Modal */}
+      {showWeightForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Add Weight Entry</h3>
+                <button
+                  onClick={() => setShowWeightForm(false)}
+                  className="btn-icon-secondary"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleWeightSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Weight (kg)
+                  </label>
+                  <input
+                    type="number"
+                    value={weightForm.weight}
+                    onChange={(e) => setWeightForm(prev => ({ ...prev, weight: e.target.value }))}
+                    className="input"
+                    placeholder="Enter weight"
+                    required
+                    min="20"
+                    max="300"
+                    step="0.1"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Body Fat % (Optional)
+                  </label>
+                  <input
+                    type="number"
+                    value={weightForm.body_fat}
+                    onChange={(e) => setWeightForm(prev => ({ ...prev, body_fat: e.target.value }))}
+                    className="input"
+                    placeholder="Body fat percentage"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                  />
+                </div>
+
+                <div className="flex space-x-3">
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="flex-1 btn-primary disabled:opacity-50"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    {saving ? 'Saving...' : 'Add Weight'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowWeightForm(false)}
+                    className="btn-secondary"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sleep Form Modal */}
+      {showSleepForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Log Sleep</h3>
+                <button
+                  onClick={() => setShowSleepForm(false)}
+                  className="btn-icon-secondary"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSleepSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Sleep Time
+                  </label>
+                  <input
+                    type="time"
+                    value={sleepForm.sleep_time}
+                    onChange={(e) => setSleepForm(prev => ({ ...prev, sleep_time: e.target.value }))}
+                    className="input"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Wake Time
+                  </label>
+                  <input
+                    type="time"
+                    value={sleepForm.wake_time}
+                    onChange={(e) => setSleepForm(prev => ({ ...prev, wake_time: e.target.value }))}
+                    className="input"
+                    required
+                  />
+                </div>
+
+                {sleepForm.sleep_time && sleepForm.wake_time && (
+                  <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                    <div className="text-sm text-purple-700">
+                      Duration: {calculateSleepDuration(sleepForm.sleep_time, sleepForm.wake_time).toFixed(1)} hours
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex space-x-3">
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="flex-1 btn-primary disabled:opacity-50"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    {saving ? 'Saving...' : 'Log Sleep'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowSleepForm(false)}
+                    className="btn-secondary"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
