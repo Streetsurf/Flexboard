@@ -25,6 +25,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { format, addDays, subDays, isToday, startOfWeek, endOfWeek, eachDayOfInterval } from 'date-fns';
+import { id as idLocale } from 'date-fns/locale';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import BodyTrackerDashboard from './BodyTrackerDashboard';
 
@@ -615,6 +616,21 @@ const BodyTracker: React.FC = () => {
 
   const calorieStatus = getCalorieStatus();
 
+  // Format date with proper locale
+  const formatDateWithLocale = (date: Date, formatStr: string) => {
+    try {
+      return format(date, formatStr, { locale: idLocale });
+    } catch (error) {
+      // Fallback to simple format if locale fails
+      return date.toLocaleDateString('id-ID', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -679,7 +695,7 @@ const BodyTracker: React.FC = () => {
               <div className="flex items-center space-x-2 px-3 py-2 bg-gray-50 rounded-lg">
                 <Calendar className="w-4 h-4 text-gray-600" />
                 <span className="font-medium text-gray-900 text-sm">
-                  {format(selectedDate, 'EEEE, d MMMM yyyy', { locale: { localize: { day: (n: number) => ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'][n], month: (n: number) => ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'][n] } } })}
+                  {formatDateWithLocale(selectedDate, 'EEEE, d MMMM yyyy')}
                 </span>
               </div>
               
