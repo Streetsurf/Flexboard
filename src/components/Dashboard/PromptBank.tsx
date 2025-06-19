@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Lightbulb, Plus, X, Copy, Edit2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
+import { triggerDataUpdate } from '../../hooks/useGlobalState';
 
 interface Prompt {
   id: string;
@@ -13,19 +14,23 @@ interface Prompt {
 
 interface PromptBankProps {
   readOnly?: boolean;
+  globalData?: Prompt[];
 }
 
-const PromptBank: React.FC<PromptBankProps> = ({ readOnly = false }) => {
-  const [prompts, setPrompts] = useState<Prompt[]>([]);
-  const [loading, setLoading] = useState(true);
+const PromptBank: React.FC<PromptBankProps> = ({ readOnly = false, globalData = [] }) => {
+  const [prompts, setPrompts] = useState<Prompt[]>(globalData);
+  const [loading, setLoading] = useState(!globalData.length);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const { user } = useAuth();
 
   useEffect(() => {
-    if (user) {
+    if (globalData.length > 0) {
+      setPrompts(globalData);
+      setLoading(false);
+    } else if (user) {
       fetchPrompts();
     }
-  }, [user]);
+  }, [globalData, user]);
 
   const fetchPrompts = async () => {
     try {

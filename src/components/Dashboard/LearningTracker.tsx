@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { GraduationCap, Plus, X, Target, Edit2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
+import { triggerDataUpdate } from '../../hooks/useGlobalState';
 
 interface LearningGoal {
   id: string;
@@ -14,18 +15,22 @@ interface LearningGoal {
 
 interface LearningTrackerProps {
   readOnly?: boolean;
+  globalData?: LearningGoal[];
 }
 
-const LearningTracker: React.FC<LearningTrackerProps> = ({ readOnly = false }) => {
-  const [goals, setGoals] = useState<LearningGoal[]>([]);
-  const [loading, setLoading] = useState(true);
+const LearningTracker: React.FC<LearningTrackerProps> = ({ readOnly = false, globalData = [] }) => {
+  const [goals, setGoals] = useState<LearningGoal[]>(globalData);
+  const [loading, setLoading] = useState(!globalData.length);
   const { user } = useAuth();
 
   useEffect(() => {
-    if (user) {
+    if (globalData.length > 0) {
+      setGoals(globalData);
+      setLoading(false);
+    } else if (user) {
       fetchGoals();
     }
-  }, [user]);
+  }, [globalData, user]);
 
   const fetchGoals = async () => {
     try {
@@ -58,6 +63,9 @@ const LearningTracker: React.FC<LearningTrackerProps> = ({ readOnly = false }) =
       setGoals(goals.map(goal => 
         goal.id === id ? { ...goal, completed: !completed } : goal
       ));
+      
+      // Trigger global state update
+      triggerDataUpdate('learning');
     } catch (error) {
       console.error('Error updating learning goal:', error);
     }

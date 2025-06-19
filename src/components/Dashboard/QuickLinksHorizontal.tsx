@@ -13,16 +13,30 @@ interface QuickLink {
   open_in_app?: boolean;
 }
 
-const QuickLinksHorizontal: React.FC = () => {
-  const [links, setLinks] = useState<QuickLink[]>([]);
-  const [loading, setLoading] = useState(true);
+interface QuickLinksHorizontalProps {
+  globalData?: QuickLink[];
+}
+
+const QuickLinksHorizontal: React.FC<QuickLinksHorizontalProps> = ({ globalData = [] }) => {
+  const [links, setLinks] = useState<QuickLink[]>(globalData);
+  const [loading, setLoading] = useState(!globalData.length);
   const [error, setError] = useState<string | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
 
-  // Memoize fetch function to prevent unnecessary re-renders
+  // Use global data when available, otherwise fetch from database
+  useEffect(() => {
+    if (globalData.length > 0) {
+      setLinks(globalData);
+      setLoading(false);
+    } else if (user?.id) {
+      fetchLinks();
+    }
+  }, [globalData, user?.id]);
+
+  // Enhanced fetch function with better error handling
   const fetchLinks = useCallback(async () => {
     if (!user?.id) {
       setLoading(false);
@@ -49,10 +63,14 @@ const QuickLinksHorizontal: React.FC = () => {
       console.error('Error fetching quick links:', error);
       
       let errorMessage = 'Failed to load quick links';
+      
+      // Handle specific error types
       if (error.name === 'AbortError') {
         errorMessage = 'Request timed out';
       } else if (error.message?.includes('Failed to fetch')) {
-        errorMessage = 'Connection error';
+        errorMessage = 'Connection error - check your internet connection';
+      } else if (error.message?.includes('Network')) {
+        errorMessage = 'Network error - please try again';
       }
       
       setError(errorMessage);
@@ -61,11 +79,6 @@ const QuickLinksHorizontal: React.FC = () => {
       setLoading(false);
     }
   }, [user?.id]);
-
-  // Use effect with dependency array to prevent unnecessary calls
-  useEffect(() => {
-    fetchLinks();
-  }, [fetchLinks]);
 
   // Memoize scroll check function
   const checkScrollability = useCallback(() => {
@@ -142,7 +155,7 @@ const QuickLinksHorizontal: React.FC = () => {
         <p className="text-xs text-red-600 mb-2">{error}</p>
         <button 
           onClick={fetchLinks}
-          className="text-xs text-blue-600 hover:text-blue-700"
+          className="text-xs text-blue-600 hover:text-blue-700 px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 transition-colors"
         >
           Retry
         </button>
