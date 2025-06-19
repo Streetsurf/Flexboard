@@ -14,8 +14,12 @@ import {
   Calendar,
   Clock,
   Flame,
-  Award
+  Award,
+  ChevronLeft,
+  ChevronRight,
+  Moon
 } from 'lucide-react';
+import { format, addDays, subDays, isToday } from 'date-fns';
 import BodyTrackerDashboard from './BodyTrackerDashboard';
 
 interface UserProfile {
@@ -58,10 +62,19 @@ interface BodyProgress {
   date: string;
 }
 
-type ActiveTab = 'dashboard' | 'profile' | 'target' | 'calories' | 'workout' | 'progress' | 'stats';
+interface SleepEntry {
+  id: string;
+  bedTime: string;
+  wakeTime: string;
+  duration: number;
+  date: string;
+}
+
+type ActiveTab = 'dashboard' | 'profile' | 'target' | 'calories' | 'workout' | 'progress' | 'sleep' | 'stats';
 
 const BodyTracker: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [selectedDate, setSelectedDate] = useState(new Date());
   
   const [profile, setProfile] = useState<UserProfile>({
     age: 25,
@@ -83,9 +96,9 @@ const BodyTracker: React.FC = () => {
       type: 'food',
       name: 'Nasi Goreng',
       calories: 450,
-      category: 'Makanan Utama',
+      category: 'Makan siang',
       description: 'Nasi goreng ayam dengan telur',
-      date: '2024-01-15'
+      date: format(new Date(), 'yyyy-MM-dd')
     },
     {
       id: '2',
@@ -94,7 +107,7 @@ const BodyTracker: React.FC = () => {
       calories: -300,
       category: 'Cardio',
       description: 'Jogging pagi di taman',
-      date: '2024-01-15'
+      date: format(new Date(), 'yyyy-MM-dd')
     }
   ]);
 
@@ -105,7 +118,7 @@ const BodyTracker: React.FC = () => {
       duration: 15,
       caloriesBurned: 50,
       completed: true,
-      date: '2024-01-15'
+      date: format(new Date(), 'yyyy-MM-dd')
     },
     {
       id: '2',
@@ -113,7 +126,7 @@ const BodyTracker: React.FC = () => {
       duration: 10,
       caloriesBurned: 30,
       completed: false,
-      date: '2024-01-15'
+      date: format(new Date(), 'yyyy-MM-dd')
     }
   ]);
 
@@ -124,7 +137,24 @@ const BodyTracker: React.FC = () => {
     { id: '4', weight: 70.8, bodyFat: 17.3, date: '2024-01-11' },
     { id: '5', weight: 70.5, bodyFat: 17, date: '2024-01-12' },
     { id: '6', weight: 70.2, bodyFat: 16.8, date: '2024-01-13' },
-    { id: '7', weight: 70, bodyFat: 16.5, date: '2024-01-14' }
+    { id: '7', weight: 70, bodyFat: 16.5, date: format(new Date(), 'yyyy-MM-dd') }
+  ]);
+
+  const [sleepEntries, setSleepEntries] = useState<SleepEntry[]>([
+    {
+      id: '1',
+      bedTime: '22:00',
+      wakeTime: '06:00',
+      duration: 8,
+      date: format(subDays(new Date(), 1), 'yyyy-MM-dd')
+    },
+    {
+      id: '2',
+      bedTime: '23:30',
+      wakeTime: '07:00',
+      duration: 7.5,
+      date: format(new Date(), 'yyyy-MM-dd')
+    }
   ]);
 
   const [editingProfile, setEditingProfile] = useState(false);
@@ -132,6 +162,7 @@ const BodyTracker: React.FC = () => {
   const [showAddCalorie, setShowAddCalorie] = useState(false);
   const [showAddWorkout, setShowAddWorkout] = useState(false);
   const [showAddProgress, setShowAddProgress] = useState(false);
+  const [showAddSleep, setShowAddSleep] = useState(false);
 
   const [newCalorieEntry, setNewCalorieEntry] = useState({
     type: 'food' as 'food' | 'exercise',
@@ -152,9 +183,18 @@ const BodyTracker: React.FC = () => {
     bodyFat: 0
   });
 
+  const [newSleepEntry, setNewSleepEntry] = useState({
+    bedTime: '',
+    wakeTime: ''
+  });
+
   const [editingCalorie, setEditingCalorie] = useState<CalorieEntry | null>(null);
   const [editingWorkout, setEditingWorkout] = useState<WorkoutEntry | null>(null);
   const [editingProgress, setEditingProgress] = useState<BodyProgress | null>(null);
+  const [editingSleep, setEditingSleep] = useState<SleepEntry | null>(null);
+
+  // Date string for current selected date
+  const dateStr = format(selectedDate, 'yyyy-MM-dd');
 
   // Calculation functions
   const calculateBMR = (profile: UserProfile): number => {
@@ -186,18 +226,47 @@ const BodyTracker: React.FC = () => {
     }
   };
 
+  const calculateSleepDuration = (bedTime: string, wakeTime: string): number => {
+    const [bedHour, bedMinute] = bedTime.split(':').map(Number);
+    const [wakeHour, wakeMinute] = wakeTime.split(':').map(Number);
+    
+    let bedTimeMinutes = bedHour * 60 + bedMinute;
+    let wakeTimeMinutes = wakeHour * 60 + wakeMinute;
+    
+    // If wake time is earlier than bed time, assume it's the next day
+    if (wakeTimeMinutes < bedTimeMinutes) {
+      wakeTimeMinutes += 24 * 60;
+    }
+    
+    const durationMinutes = wakeTimeMinutes - bedTimeMinutes;
+    return Math.round((durationMinutes / 60) * 10) / 10;
+  };
+
   const bmr = calculateBMR(profile);
   const tdee = calculateTDEE(bmr, profile.activityLevel);
   const targetCalories = calculateTargetCalories(tdee, goal.mode);
 
   const todayCalories = calorieEntries
-    .filter(entry => entry.date === '2024-01-15')
+    .filter(entry => entry.date === dateStr)
     .reduce((sum, entry) => sum + entry.calories, 0);
 
-  const todayWorkouts = workoutEntries.filter(entry => entry.date === '2024-01-15');
+  const todayWorkouts = workoutEntries.filter(entry => entry.date === dateStr);
   const completedWorkouts = todayWorkouts.filter(workout => workout.completed);
 
   const calorieDeficit = targetCalories - todayCalories;
+
+  // Date navigation functions
+  const navigateDate = (direction: 'prev' | 'next') => {
+    if (direction === 'prev') {
+      setSelectedDate(prev => subDays(prev, 1));
+    } else {
+      setSelectedDate(prev => addDays(prev, 1));
+    }
+  };
+
+  const goToToday = () => {
+    setSelectedDate(new Date());
+  };
 
   // CRUD Functions
   const handleSaveProfile = () => {
@@ -214,7 +283,7 @@ const BodyTracker: React.FC = () => {
     const newEntry: CalorieEntry = {
       id: Date.now().toString(),
       ...newCalorieEntry,
-      date: '2024-01-15'
+      date: dateStr
     };
     setCalorieEntries([...calorieEntries, newEntry]);
     setNewCalorieEntry({ type: 'food', name: '', calories: 0, category: '', description: '' });
@@ -255,7 +324,7 @@ const BodyTracker: React.FC = () => {
       id: Date.now().toString(),
       ...newWorkoutEntry,
       completed: false,
-      date: '2024-01-15'
+      date: dateStr
     };
     setWorkoutEntries([...workoutEntries, newEntry]);
     setNewWorkoutEntry({ name: '', duration: 0, caloriesBurned: 0 });
@@ -299,7 +368,7 @@ const BodyTracker: React.FC = () => {
     const newEntry: BodyProgress = {
       id: Date.now().toString(),
       ...newProgressEntry,
-      date: '2024-01-15'
+      date: dateStr
     };
     setBodyProgress([...bodyProgress, newEntry]);
     setNewProgressEntry({ weight: 0, bodyFat: 0 });
@@ -330,6 +399,46 @@ const BodyTracker: React.FC = () => {
 
   const handleDeleteProgress = (id: string) => {
     setBodyProgress(bodyProgress.filter(entry => entry.id !== id));
+  };
+
+  const handleAddSleep = () => {
+    const duration = calculateSleepDuration(newSleepEntry.bedTime, newSleepEntry.wakeTime);
+    const newEntry: SleepEntry = {
+      id: Date.now().toString(),
+      ...newSleepEntry,
+      duration,
+      date: dateStr
+    };
+    setSleepEntries([...sleepEntries, newEntry]);
+    setNewSleepEntry({ bedTime: '', wakeTime: '' });
+    setShowAddSleep(false);
+  };
+
+  const handleEditSleep = (entry: SleepEntry) => {
+    setEditingSleep(entry);
+    setNewSleepEntry({
+      bedTime: entry.bedTime,
+      wakeTime: entry.wakeTime
+    });
+    setShowAddSleep(true);
+  };
+
+  const handleUpdateSleep = () => {
+    if (editingSleep) {
+      const duration = calculateSleepDuration(newSleepEntry.bedTime, newSleepEntry.wakeTime);
+      setSleepEntries(sleepEntries.map(entry => 
+        entry.id === editingSleep.id 
+          ? { ...entry, ...newSleepEntry, duration }
+          : entry
+      ));
+      setEditingSleep(null);
+      setNewSleepEntry({ bedTime: '', wakeTime: '' });
+      setShowAddSleep(false);
+    }
+  };
+
+  const handleDeleteSleep = (id: string) => {
+    setSleepEntries(sleepEntries.filter(entry => entry.id !== id));
   };
 
   const getCalorieStatus = () => {
@@ -368,8 +477,17 @@ const BodyTracker: React.FC = () => {
     { id: 'target', label: 'Target', icon: Target },
     { id: 'calories', label: 'Kalori', icon: Utensils },
     { id: 'workout', label: 'Workout', icon: Activity },
+    { id: 'sleep', label: 'Sleep', icon: Moon },
     { id: 'progress', label: 'Progress', icon: TrendingUp },
     { id: 'stats', label: 'Statistik', icon: BarChart3 }
+  ];
+
+  // Food categories for dropdown
+  const foodCategories = [
+    'Sarapan',
+    'Makan siang', 
+    'Makan sore/malam',
+    'Cemilan'
   ];
 
   return (
@@ -384,6 +502,45 @@ const BodyTracker: React.FC = () => {
             <h2 className="card-title">Body Tracker</h2>
           </div>
         </div>
+
+        {/* Date Navigation - Only show if not dashboard */}
+        {activeTab !== 'dashboard' && (
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center space-x-1">
+                <button
+                  onClick={() => navigateDate('prev')}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-all duration-200"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                
+                <div className="flex items-center space-x-2 px-3 py-2 bg-gray-50 rounded-lg">
+                  <Calendar className="w-4 h-4 text-gray-600" />
+                  <span className="font-medium text-gray-900 text-sm">
+                    {format(selectedDate, 'EEEE, d MMMM yyyy')}
+                  </span>
+                </div>
+                
+                <button
+                  onClick={() => navigateDate('next')}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-all duration-200"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+              
+              {!isToday(selectedDate) && (
+                <button
+                  onClick={goToToday}
+                  className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Hari Ini
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Tab Navigation */}
         <div className="flex space-x-1 overflow-x-auto pb-2">
@@ -636,7 +793,7 @@ const BodyTracker: React.FC = () => {
           {/* Calorie Summary */}
           <div className="card animate-fadeIn">
             <div className="card-header">
-              <h3 className="card-title">Ringkasan Kalori Hari Ini</h3>
+              <h3 className="card-title">Ringkasan Kalori - {format(selectedDate, 'd MMM yyyy')}</h3>
               <button
                 onClick={() => setShowAddCalorie(true)}
                 className="btn-icon-primary"
@@ -674,7 +831,7 @@ const BodyTracker: React.FC = () => {
             </div>
 
             <div className="space-y-3">
-              {calorieEntries.filter(entry => entry.date === '2024-01-15').map((entry) => (
+              {calorieEntries.filter(entry => entry.date === dateStr).map((entry) => (
                 <div key={entry.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <div className="flex items-center space-x-3">
                     <div className={`w-3 h-3 rounded-full ${entry.type === 'food' ? 'bg-green-500' : 'bg-red-500'}`}></div>
@@ -702,6 +859,13 @@ const BodyTracker: React.FC = () => {
                   </div>
                 </div>
               ))}
+              
+              {calorieEntries.filter(entry => entry.date === dateStr).length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  <Utensils className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                  <p className="text-sm">Belum ada catatan kalori untuk hari ini</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -760,13 +924,26 @@ const BodyTracker: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
-                    <input
-                      type="text"
-                      value={newCalorieEntry.category}
-                      onChange={(e) => setNewCalorieEntry({...newCalorieEntry, category: e.target.value})}
-                      className="input"
-                      placeholder="Kategori"
-                    />
+                    {newCalorieEntry.type === 'food' ? (
+                      <select
+                        value={newCalorieEntry.category}
+                        onChange={(e) => setNewCalorieEntry({...newCalorieEntry, category: e.target.value})}
+                        className="input"
+                      >
+                        <option value="">Pilih kategori</option>
+                        {foodCategories.map((category) => (
+                          <option key={category} value={category}>{category}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={newCalorieEntry.category}
+                        onChange={(e) => setNewCalorieEntry({...newCalorieEntry, category: e.target.value})}
+                        className="input"
+                        placeholder="Kategori olahraga"
+                      />
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi</label>
@@ -810,7 +987,7 @@ const BodyTracker: React.FC = () => {
           {/* Workout Summary */}
           <div className="card animate-fadeIn">
             <div className="card-header">
-              <h3 className="card-title">Workout Hari Ini</h3>
+              <h3 className="card-title">Workout - {format(selectedDate, 'd MMM yyyy')}</h3>
               <button
                 onClick={() => setShowAddWorkout(true)}
                 className="btn-icon-primary"
@@ -882,6 +1059,13 @@ const BodyTracker: React.FC = () => {
                   </div>
                 </div>
               ))}
+              
+              {todayWorkouts.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  <Activity className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                  <p className="text-sm">Belum ada workout untuk hari ini</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -950,6 +1134,169 @@ const BodyTracker: React.FC = () => {
                       setShowAddWorkout(false);
                       setEditingWorkout(null);
                       setNewWorkoutEntry({ name: '', duration: 0, caloriesBurned: 0 });
+                    }}
+                    className="flex-1 btn-secondary"
+                  >
+                    Batal
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Sleep Tab */}
+      {activeTab === 'sleep' && (
+        <div className="space-y-6">
+          {/* Sleep Summary */}
+          <div className="card animate-fadeIn">
+            <div className="card-header">
+              <h3 className="card-title">Sleep Tracker - {format(selectedDate, 'd MMM yyyy')}</h3>
+              <button
+                onClick={() => setShowAddSleep(true)}
+                className="btn-icon-primary"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
+
+            {sleepEntries.filter(entry => entry.date === dateStr).length > 0 && (
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                {sleepEntries.filter(entry => entry.date === dateStr).map((sleep) => (
+                  <React.Fragment key={sleep.id}>
+                    <div className="stat-card bg-blue-50 border-blue-200">
+                      <div className="stat-value text-blue-600">{sleep.bedTime}</div>
+                      <div className="stat-label">Jam Tidur</div>
+                    </div>
+                    <div className="stat-card bg-green-50 border-green-200">
+                      <div className="stat-value text-green-600">{sleep.wakeTime}</div>
+                      <div className="stat-label">Jam Bangun</div>
+                    </div>
+                    <div className="stat-card bg-purple-50 border-purple-200">
+                      <div className="stat-value text-purple-600">{sleep.duration}h</div>
+                      <div className="stat-label">Total Tidur</div>
+                    </div>
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Sleep History */}
+          <div className="card animate-fadeIn">
+            <div className="card-header">
+              <h3 className="card-title">Riwayat Tidur</h3>
+            </div>
+
+            <div className="space-y-3">
+              {sleepEntries.filter(entry => entry.date === dateStr).map((sleep) => (
+                <div key={sleep.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center space-x-3">
+                    <Moon className="w-4 h-4 text-purple-500" />
+                    <div>
+                      <h4 className="font-medium text-gray-900">
+                        {sleep.bedTime} - {sleep.wakeTime}
+                      </h4>
+                      <p className="text-xs text-gray-600">
+                        Durasi: {sleep.duration} jam • {format(new Date(sleep.date), 'd MMM yyyy')}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className={`text-sm font-medium ${
+                      sleep.duration >= 7 ? 'text-green-600' : 
+                      sleep.duration >= 6 ? 'text-yellow-600' : 'text-red-600'
+                    }`}>
+                      {sleep.duration >= 7 ? 'Baik' : sleep.duration >= 6 ? 'Cukup' : 'Kurang'}
+                    </span>
+                    <button
+                      onClick={() => handleEditSleep(sleep)}
+                      className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteSleep(sleep.id)}
+                      className="p-1 text-red-600 hover:bg-red-50 rounded"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              
+              {sleepEntries.filter(entry => entry.date === dateStr).length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  <Moon className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                  <p className="text-sm">Belum ada catatan tidur untuk hari ini</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Add Sleep Modal */}
+          {showAddSleep && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-xl p-6 w-full max-w-md">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold">
+                    {editingSleep ? 'Edit Tidur' : 'Tambah Catatan Tidur'}
+                  </h3>
+                  <button
+                    onClick={() => {
+                      setShowAddSleep(false);
+                      setEditingSleep(null);
+                      setNewSleepEntry({ bedTime: '', wakeTime: '' });
+                    }}
+                    className="p-1 text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Jam Tidur</label>
+                    <input
+                      type="time"
+                      value={newSleepEntry.bedTime}
+                      onChange={(e) => setNewSleepEntry({...newSleepEntry, bedTime: e.target.value})}
+                      className="input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Jam Bangun</label>
+                    <input
+                      type="time"
+                      value={newSleepEntry.wakeTime}
+                      onChange={(e) => setNewSleepEntry({...newSleepEntry, wakeTime: e.target.value})}
+                      className="input"
+                    />
+                  </div>
+                  
+                  {newSleepEntry.bedTime && newSleepEntry.wakeTime && (
+                    <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                      <p className="text-sm text-blue-700">
+                        <strong>Durasi tidur:</strong> {calculateSleepDuration(newSleepEntry.bedTime, newSleepEntry.wakeTime)} jam
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex space-x-3 mt-6">
+                  <button
+                    onClick={editingSleep ? handleUpdateSleep : handleAddSleep}
+                    disabled={!newSleepEntry.bedTime || !newSleepEntry.wakeTime}
+                    className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {editingSleep ? 'Update' : 'Tambah'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowAddSleep(false);
+                      setEditingSleep(null);
+                      setNewSleepEntry({ bedTime: '', wakeTime: '' });
                     }}
                     className="flex-1 btn-secondary"
                   >
@@ -1168,7 +1515,12 @@ const BodyTracker: React.FC = () => {
                 <div className="stat-label">Status Kalori</div>
               </div>
               <div className="stat-card bg-purple-50 border-purple-200">
-                <div className="stat-value text-purple-600">7.2</div>
+                <div className="stat-value text-purple-600">
+                  {sleepEntries.length > 0 
+                    ? (sleepEntries.reduce((sum, entry) => sum + entry.duration, 0) / sleepEntries.length).toFixed(1)
+                    : '0'
+                  }
+                </div>
                 <div className="stat-label">Rata-rata Tidur (jam)</div>
               </div>
             </div>
