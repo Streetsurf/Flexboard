@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import { supabase, preloadCriticalData, clearCache } from '../lib/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -29,7 +29,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let mounted = true;
 
-    // Get initial session with timeout
+    // Ultra-fast session initialization
     const getInitialSession = async () => {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
@@ -38,27 +38,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (error) {
             console.error('Error getting session:', error);
             
-            // Handle invalid refresh token error
             if (error.message && error.message.includes('Refresh Token Not Found')) {
               console.log('Invalid refresh token detected, clearing session');
-              // Clear the invalid session from local storage
               await supabase.auth.signOut();
+              clearCache(); // Clear cache on auth error
               setSession(null);
               setUser(null);
             }
           } else {
             setSession(session);
             setUser(session?.user ?? null);
+            
+            // Preload critical data immediately after auth
+            if (session?.user?.id) {
+              preloadCriticalData(session.user.id);
+            }
           }
           setLoading(false);
         }
       } catch (error) {
         console.error('Error in getInitialSession:', error);
         if (mounted) {
-          // Clear session on any unexpected error
           setSession(null);
           setUser(null);
           setLoading(false);
+          clearCache();
         }
       }
     };
@@ -68,11 +72,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (mounted) {
         setSession(session);
         setUser(session?.user ?? null);
         setLoading(false);
+        
+        if (session?.user?.id) {
+          // Preload data for new session
+          preloadCriticalData(session.user.id);
+        } else {
+          // Clear cache on sign out
+          clearCache();
+        }
       }
     });
 
@@ -83,7 +95,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signUp = async (email: string, password: string) => {
-    // Validate inputs
     if (!email || !password) {
       throw new Error('Email and password are required');
     }
@@ -105,14 +116,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw error;
     }
 
-    // Check if user needs email confirmation
     if (data.user && !data.session) {
       console.log('User created, email confirmation required');
     }
   };
 
   const signIn = async (email: string, password: string) => {
-    // Validate inputs
     if (!email || !password) {
       throw new Error('Email and password are required');
     }
@@ -125,13 +134,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) {
         console.error('Sign in error:', error);
-        // Re-throw the error with all its properties intact
         throw error;
+      }
+
+      // Preload data immediately after successful sign in
+      if (data.user?.id) {
+        preloadCriticalData(data.user.id);
       }
 
       return data;
     } catch (error) {
-      // Ensure we preserve the original error structure
       console.error('Sign in catch block:', error);
       throw error;
     }
@@ -143,6 +155,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Sign out error:', error);
       throw error;
     }
+    
+    // Clear all cached data on sign out
+    clearCache();
   };
 
   const value = {

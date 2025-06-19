@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, Plus, ExternalLink, ChevronLeft, ChevronRight, Smartphone, Globe, AlertCircle, RefreshCw } from 'lucide-react';
-import { supabase, testSupabaseConnection } from '../../lib/supabase';
+import { fastQuery, getCachedData, setCachedData } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 
 interface QuickLink {
@@ -15,7 +15,7 @@ interface QuickLink {
 
 const QuickLinksHorizontal: React.FC = () => {
   const [links, setLinks] = useState<QuickLink[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start with false for instant loading
   const [error, setError] = useState<string | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -23,77 +23,69 @@ const QuickLinksHorizontal: React.FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
 
-  // Enhanced error handling function
-  const handleError = useCallback((error: any, context: string) => {
-    console.error(`Error in ${context}:`, error);
-    
-    let errorMessage = `Failed to ${context.toLowerCase()}`;
-    
-    if (error.name === 'AbortError') {
-      errorMessage = 'Request timed out. Please check your internet connection.';
-    } else if (error.message?.includes('Failed to fetch')) {
-      errorMessage = 'Unable to connect to the server. Please check your internet connection.';
-    } else if (error.message?.includes('NetworkError')) {
-      errorMessage = 'Network error. Please check your internet connection.';
-    } else if (error.code) {
-      errorMessage = `Database error: ${error.message}`;
-    }
-    
-    setError(errorMessage);
-  }, []);
-
-  // Memoize fetch function to prevent unnecessary re-renders
-  const fetchLinks = useCallback(async () => {
+  // Ultra-fast data loading with aggressive caching
+  const loadLinks = useCallback(async () => {
     if (!user?.id) {
       setLoading(false);
       return;
     }
 
-    try {
+    // Try cache first for instant loading
+    const cacheKey = `quick_links_${user.id}`;
+    const cached = getCachedData(cacheKey);
+    if (cached) {
+      setLinks(cached);
       setError(null);
-      
-      // Optimized query with minimal data
-      const { data, error } = await supabase
-        .from('quick_links')
-        .select('id, title, url, icon, open_in_app')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: true })
-        .limit(10);
+      return;
+    }
 
-      if (error) {
-        throw error;
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const { data, error, fromCache } = await fastQuery('quick_links', {
+        select: 'id, title, url, icon, open_in_app',
+        eq: { user_id: user.id },
+        order: { column: 'created_at', ascending: true },
+        limit: 10
+      });
+
+      if (error) throw error;
+      
+      const linksData = data || [];
+      setLinks(linksData);
+      
+      // Cache for ultra-fast future access
+      if (!fromCache) {
+        setCachedData(cacheKey, linksData);
+      }
+    } catch (error: any) {
+      console.error('Error loading quick links:', error);
+      
+      let errorMessage = 'Failed to load quick links';
+      if (error.name === 'AbortError') {
+        errorMessage = 'Request timed out. Please check your connection.';
+      } else if (error.message?.includes('Failed to fetch')) {
+        errorMessage = 'Connection error. Please check your internet.';
       }
       
-      setLinks(data || []);
-    } catch (error: any) {
-      handleError(error, 'fetch quick links');
+      setError(errorMessage);
       setLinks([]);
     } finally {
       setLoading(false);
     }
-  }, [user?.id, handleError]);
+  }, [user?.id]);
 
   // Retry function
   const retryConnection = useCallback(async () => {
-    setLoading(true);
-    setError(null);
     setRetryCount(prev => prev + 1);
-    
-    // Test connection first
-    const isConnected = await testSupabaseConnection();
-    if (!isConnected) {
-      setError('Unable to connect to the database. Please check your internet connection.');
-      setLoading(false);
-      return;
-    }
-    
-    await fetchLinks();
-  }, [fetchLinks]);
+    await loadLinks();
+  }, [loadLinks]);
 
-  // Use effect with dependency array to prevent unnecessary calls
+  // Initial load with cache priority
   useEffect(() => {
-    fetchLinks();
-  }, [fetchLinks]);
+    loadLinks();
+  }, [loadLinks]);
 
   // Memoize scroll check function
   const checkScrollability = useCallback(() => {
@@ -150,8 +142,8 @@ const QuickLinksHorizontal: React.FC = () => {
     return appSchemes[domain] || url;
   }, []);
 
-  // Optimized loading state
-  if (loading) {
+  // Only show loading if actually loading and no cached data
+  if (loading && links.length === 0) {
     return (
       <div className="flex space-x-2 overflow-x-auto pb-2">
         {[...Array(3)].map((_, i) => (

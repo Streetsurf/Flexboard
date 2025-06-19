@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { BookOpen, Save, Edit2 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { fastQuery, getCachedData, setCachedData } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { format } from 'date-fns';
 
@@ -13,113 +13,90 @@ interface JournalEntry {
 
 interface DailyJournalProps {
   readOnly?: boolean;
-  selectedDate?: Date; // Tambah prop untuk tanggal yang dipilih
+  selectedDate?: Date;
 }
 
 const DailyJournal: React.FC<DailyJournalProps> = ({ 
   readOnly = false, 
   selectedDate = new Date() 
 }) => {
-  const [allEntries, setAllEntries] = useState<JournalEntry[]>([]); // Cache semua entries
+  const [allEntries, setAllEntries] = useState<JournalEntry[]>([]);
   const [entry, setEntry] = useState('');
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start with false for instant loading
   const { user } = useAuth();
   
-  // Memoize date string
   const dateStr = useMemo(() => format(selectedDate, 'yyyy-MM-dd'), [selectedDate]);
   
-  // Get entry untuk tanggal yang dipilih dari cache
+  // Ultra-fast entry lookup from cache
   const currentEntry = useMemo(() => {
     return allEntries.find(e => e.date === dateStr);
   }, [allEntries, dateStr]);
 
-  // Update entry state ketika currentEntry berubah
+  // Update entry state instantly when currentEntry changes
   useEffect(() => {
     setEntry(currentEntry?.content || '');
   }, [currentEntry]);
 
-  // Fetch entries untuk range tanggal yang lebih luas
-  const fetchEntriesRange = useCallback(async () => {
+  // Ultra-fast data loading with aggressive caching
+  const loadEntries = useCallback(async () => {
     if (!user?.id) return;
     
+    // Try cache first for instant loading
+    const cacheKey = `journal_entries_${user.id}`;
+    const cached = getCachedData(cacheKey);
+    if (cached) {
+      setAllEntries(cached);
+      return;
+    }
+    
+    setLoading(true);
     try {
-      setLoading(true);
-      
-      // Ambil data untuk 3 bulan ke depan dan belakang
       const startDate = new Date(selectedDate);
-      startDate.setMonth(startDate.getMonth() - 3);
+      startDate.setMonth(startDate.getMonth() - 6);
       const endDate = new Date(selectedDate);
-      endDate.setMonth(endDate.getMonth() + 3);
+      endDate.setMonth(endDate.getMonth() + 6);
       
-      const { data, error } = await supabase
-        .from('journal_entries')
-        .select('*')
-        .eq('user_id', user.id)
-        .gte('date', format(startDate, 'yyyy-MM-dd'))
-        .lte('date', format(endDate, 'yyyy-MM-dd'))
-        .order('date', { ascending: false });
+      const { data, error, fromCache } = await fastQuery('journal_entries', {
+        select: '*',
+        eq: { user_id: user.id },
+        gte: { date: format(startDate, 'yyyy-MM-dd') },
+        lte: { date: format(endDate, 'yyyy-MM-dd') },
+        order: { column: 'date', ascending: false }
+      });
 
       if (error) throw error;
-      setAllEntries(data || []);
+      
+      const entriesData = data || [];
+      setAllEntries(entriesData);
+      
+      // Cache for ultra-fast future access
+      if (!fromCache) {
+        setCachedData(cacheKey, entriesData);
+      }
     } catch (error) {
-      console.error('Error fetching journal entries:', error);
+      console.error('Error loading journal entries:', error);
     } finally {
       setLoading(false);
     }
   }, [user?.id, selectedDate]);
 
-  // Fetch entry untuk tanggal spesifik jika belum ada di cache
-  const fetchEntryForDate = useCallback(async (targetDate: string) => {
-    if (!user?.id) return;
-    
-    // Cek apakah data untuk tanggal ini sudah ada di cache
-    const existingEntry = allEntries.find(e => e.date === targetDate);
-    if (existingEntry) return; // Sudah ada di cache
-    
-    try {
-      const { data, error } = await supabase
-        .from('journal_entries')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('date', targetDate)
-        .maybeSingle();
-
-      if (error) throw error;
-      
-      if (data) {
-        // Tambahkan ke cache
-        setAllEntries(prev => {
-          const filtered = prev.filter(e => e.date !== targetDate);
-          return [data, ...filtered].sort((a, b) => 
-            new Date(b.date).getTime() - new Date(a.date).getTime()
-          );
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching journal entry for date:', error);
-    }
-  }, [user?.id, allEntries]);
-
-  // Initial load
+  // Initial load with cache priority
   useEffect(() => {
     if (user) {
-      fetchEntriesRange();
+      loadEntries();
     }
-  }, [user, fetchEntriesRange]);
+  }, [user, loadEntries]);
 
-  // Load data untuk tanggal baru saat navigasi
-  useEffect(() => {
-    if (user && dateStr) {
-      fetchEntryForDate(dateStr);
-    }
-  }, [user, dateStr, fetchEntryForDate]);
-
+  // Ultra-fast save with instant UI update
   const saveEntry = useCallback(async () => {
     if (!entry.trim() || readOnly || !user?.id) return;
     
+    // Instant UI feedback
+    setLastSaved(new Date());
     setSaving(true);
+    
     try {
       const entryData = {
         content: entry.trim(),
@@ -129,36 +106,52 @@ const DailyJournal: React.FC<DailyJournalProps> = ({
 
       if (currentEntry) {
         // Update existing entry
-        const { data, error } = await supabase
-          .from('journal_entries')
-          .update(entryData)
-          .eq('id', currentEntry.id)
-          .select()
-          .single();
+        const { data, error } = await fastQuery('journal_entries', {
+          update: entryData,
+          eq: { id: currentEntry.id }
+        });
 
         if (error) throw error;
         
-        // Update cache
+        // Update cache instantly
         setAllEntries(prev => prev.map(e => 
-          e.id === currentEntry.id ? data : e
+          e.id === currentEntry.id ? { ...currentEntry, ...entryData } : e
         ));
+        
+        const cacheKey = `journal_entries_${user.id}`;
+        const cached = getCachedData(cacheKey);
+        if (cached) {
+          setCachedData(cacheKey, cached.map((e: JournalEntry) => 
+            e.id === currentEntry.id ? { ...e, ...entryData } : e
+          ));
+        }
       } else {
-        // Create new entry
-        const { data, error } = await supabase
-          .from('journal_entries')
-          .insert([entryData])
-          .select()
-          .single();
+        // Create new entry with temp ID for instant UI
+        const tempId = `temp_${Date.now()}`;
+        const tempEntry = { id: tempId, ...entryData };
+        
+        setAllEntries(prev => [tempEntry, ...prev]);
+        
+        const { data, error } = await fastQuery('journal_entries', {
+          insert: [entryData]
+        });
 
         if (error) throw error;
         
-        // Add to cache
-        setAllEntries(prev => [data, ...prev].sort((a, b) => 
-          new Date(b.date).getTime() - new Date(a.date).getTime()
-        ));
+        // Replace temp entry with real data
+        if (data && data.length > 0) {
+          setAllEntries(prev => prev.map(e => 
+            e.id === tempId ? data[0] : e
+          ));
+          
+          // Update cache
+          const cacheKey = `journal_entries_${user.id}`;
+          const cached = getCachedData(cacheKey);
+          if (cached) {
+            setCachedData(cacheKey, [data[0], ...cached.filter((e: JournalEntry) => e.id !== tempId)]);
+          }
+        }
       }
-      
-      setLastSaved(new Date());
     } catch (error) {
       console.error('Error saving journal entry:', error);
     } finally {
@@ -171,7 +164,8 @@ const DailyJournal: React.FC<DailyJournalProps> = ({
     return text.substring(0, maxLength) + '...';
   }, []);
 
-  if (loading) {
+  // Only show loading if actually loading and no cached data
+  if (loading && allEntries.length === 0) {
     return (
       <div className="card animate-fadeIn">
         <div className="animate-pulse">
