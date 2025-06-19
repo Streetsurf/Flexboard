@@ -19,45 +19,45 @@ function AppContent() {
   } = useNotifications();
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* PWA Components */}
-      <PWAUpdatePrompt />
-      <OfflineIndicator />
-      
-      <Routes>
-        <Route path="/auth" element={<AuthForm />} />
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          }
-        />
-      </Routes>
-      
-      {/* PWA Install Prompt - only show when authenticated */}
-      <ProtectedRoute>
-        <PWAInstallPrompt />
-      </ProtectedRoute>
+    <Router>
+      <div className="min-h-screen bg-gray-50">
+        {/* PWA Components */}
+        <PWAUpdatePrompt />
+        <OfflineIndicator />
+        
+        <Routes>
+          <Route path="/auth" element={<AuthForm />} />
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+        
+        {/* PWA Install Prompt - only show when authenticated */}
+        <ProtectedRoute>
+          <PWAInstallPrompt />
+        </ProtectedRoute>
 
-      {/* Notification System */}
-      <NotificationSystem
-        notifications={notifications}
-        confirmations={confirmations}
-        onRemoveNotification={removeNotification}
-        onRemoveConfirmation={removeConfirmation}
-      />
-    </div>
+        {/* Notification System */}
+        <NotificationSystem
+          notifications={notifications}
+          confirmations={confirmations}
+          onRemoveNotification={removeNotification}
+          onRemoveConfirmation={removeConfirmation}
+        />
+      </div>
+    </Router>
   );
 }
 
 function App() {
   return (
     <AuthProvider>
-      <Router>
-        <AppContent />
-      </Router>
+      <AppContent />
     </AuthProvider>
   );
 }
