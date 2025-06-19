@@ -7,37 +7,22 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
-// Optimized Supabase client configuration for faster loading
+// Simplified Supabase client configuration for better reliability
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
-    detectSessionInUrl: false, // Faster initial load
+    detectSessionInUrl: false,
     flowType: 'pkce'
   },
   realtime: {
     params: {
-      eventsPerSecond: 2 // Reduced for better performance
+      eventsPerSecond: 2
     }
   },
   global: {
     headers: {
       'x-client-info': 'flexboard-app'
-    },
-    fetch: (url, options = {}) => {
-      // Optimized fetch with increased timeout for better reliability
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // Increased to 15 seconds
-      
-      return fetch(url, {
-        ...options,
-        signal: controller.signal,
-        // Add performance optimizations
-        keepalive: true,
-        cache: 'no-cache'
-      }).finally(() => {
-        clearTimeout(timeoutId);
-      });
     }
   },
   db: {

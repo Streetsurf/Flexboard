@@ -36,7 +36,7 @@ const QuickLinksHorizontal: React.FC<QuickLinksHorizontalProps> = ({ globalData 
     }
   }, [globalData, user?.id]);
 
-  // Memoize fetch function to prevent unnecessary re-renders
+  // Enhanced fetch function with better error handling
   const fetchLinks = useCallback(async () => {
     if (!user?.id) {
       setLoading(false);
@@ -63,10 +63,14 @@ const QuickLinksHorizontal: React.FC<QuickLinksHorizontalProps> = ({ globalData 
       console.error('Error fetching quick links:', error);
       
       let errorMessage = 'Failed to load quick links';
+      
+      // Handle specific error types
       if (error.name === 'AbortError') {
         errorMessage = 'Request timed out';
       } else if (error.message?.includes('Failed to fetch')) {
-        errorMessage = 'Connection error';
+        errorMessage = 'Connection error - check your internet connection';
+      } else if (error.message?.includes('Network')) {
+        errorMessage = 'Network error - please try again';
       }
       
       setError(errorMessage);
@@ -151,7 +155,7 @@ const QuickLinksHorizontal: React.FC<QuickLinksHorizontalProps> = ({ globalData 
         <p className="text-xs text-red-600 mb-2">{error}</p>
         <button 
           onClick={fetchLinks}
-          className="text-xs text-blue-600 hover:text-blue-700"
+          className="text-xs text-blue-600 hover:text-blue-700 px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 transition-colors"
         >
           Retry
         </button>
