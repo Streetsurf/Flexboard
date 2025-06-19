@@ -77,12 +77,14 @@ interface SleepEntry {
 }
 
 type FitnessGoal = 'cutting' | 'bulking' | 'maintenance';
+type AddModalType = 'calorie' | 'workout' | 'weight' | 'sleep' | null;
 
 const BodyTracker: React.FC = () => {
   const { user } = useAuth();
   const [activeDate, setActiveDate] = useState(new Date());
   const [selectedWeek, setSelectedWeek] = useState(new Date());
   const [activeTab, setActiveTab] = useState<'dashboard' | 'profile' | 'progress' | 'calories' | 'workout' | 'sleep'>('dashboard');
+  const [showAddModal, setShowAddModal] = useState<AddModalType>(null);
   
   // Profile state
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -324,6 +326,7 @@ const BodyTracker: React.FC = () => {
       
       setCalorieEntries([...calorieEntries, data]);
       setCalorieForm({ food_name: '', calories: '', category: 'breakfast', description: '' });
+      setShowAddModal(null);
     } catch (error) {
       console.error('Error adding calorie entry:', error);
     } finally {
@@ -355,6 +358,7 @@ const BodyTracker: React.FC = () => {
       
       setWorkoutEntries([...workoutEntries, data]);
       setWorkoutForm({ exercise_name: '', type: 'duration', duration_minutes: '', repetitions: '', calories_burned: '' });
+      setShowAddModal(null);
     } catch (error) {
       console.error('Error adding workout entry:', error);
     } finally {
@@ -383,6 +387,7 @@ const BodyTracker: React.FC = () => {
       
       setWeightEntries([data]);
       setWeightForm({ weight: '', body_fat: '' });
+      setShowAddModal(null);
     } catch (error) {
       console.error('Error adding weight entry:', error);
     } finally {
@@ -419,6 +424,7 @@ const BodyTracker: React.FC = () => {
       
       setSleepEntries([data]);
       setSleepForm({ sleep_time: '', wake_time: '' });
+      setShowAddModal(null);
     } catch (error) {
       console.error('Error adding sleep entry:', error);
     } finally {
@@ -451,6 +457,54 @@ const BodyTracker: React.FC = () => {
   const dailyCalorieGoal = calculateDailyCalorieGoal();
   const bmr = calculateBMR();
   const tdee = calculateTDEE();
+
+  // Get floating button for current tab
+  const getFloatingButton = () => {
+    switch (activeTab) {
+      case 'calories':
+        return (
+          <button
+            onClick={() => setShowAddModal('calorie')}
+            className="fab"
+            title="Add Calorie Entry"
+          >
+            <Plus className="w-6 h-6" />
+          </button>
+        );
+      case 'workout':
+        return (
+          <button
+            onClick={() => setShowAddModal('workout')}
+            className="fab"
+            title="Add Workout Entry"
+          >
+            <Plus className="w-6 h-6" />
+          </button>
+        );
+      case 'progress':
+        return (
+          <button
+            onClick={() => setShowAddModal('weight')}
+            className="fab"
+            title="Add Weight Entry"
+          >
+            <Plus className="w-6 h-6" />
+          </button>
+        );
+      case 'sleep':
+        return (
+          <button
+            onClick={() => setShowAddModal('sleep')}
+            className="fab"
+            title="Add Sleep Entry"
+          >
+            <Plus className="w-6 h-6" />
+          </button>
+        );
+      default:
+        return null;
+    }
+  };
 
   if (loading) {
     return (
@@ -878,93 +932,74 @@ const BodyTracker: React.FC = () => {
               </ResponsiveContainer>
             </div>
           </div>
+
+          {/* Today's Weight Entry */}
+          <div className="card animate-fadeIn">
+            <div className="card-header">
+              <h2 className="card-title">Today's Weight</h2>
+            </div>
+            
+            {weightEntries.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <Target className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                <p>No weight entry for today</p>
+                <p className="text-xs mt-1">Use the + button to add your weight</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {weightEntries.map((entry) => (
+                  <div key={entry.id} className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-blue-600">{entry.weight} kg</div>
+                        <div className="text-sm text-blue-700">Weight</div>
+                      </div>
+                      {entry.body_fat && (
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-blue-600">{entry.body_fat}%</div>
+                          <div className="text-sm text-blue-700">Body Fat</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {/* Calories Tab */}
       {activeTab === 'calories' && (
         <div className="space-y-6">
-          {/* Add Calorie Entry */}
+          {/* Calorie Summary */}
           <div className="card animate-fadeIn">
             <div className="card-header">
-              <h2 className="card-title">Add Calorie Entry</h2>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Food Name
-                </label>
-                <input
-                  type="text"
-                  value={calorieForm.food_name}
-                  onChange={(e) => setCalorieForm({ ...calorieForm, food_name: e.target.value })}
-                  placeholder="Enter food name"
-                  className="input"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Calories (kcal)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={calorieForm.calories}
-                  onChange={(e) => setCalorieForm({ ...calorieForm, calories: e.target.value })}
-                  placeholder="Enter calories"
-                  className="input"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Category
-                </label>
-                <select
-                  value={calorieForm.category}
-                  onChange={(e) => setCalorieForm({ ...calorieForm, category: e.target.value as CalorieEntry['category'] })}
-                  className="input"
-                >
-                  <option value="breakfast">Breakfast</option>
-                  <option value="lunch">Lunch</option>
-                  <option value="dinner">Dinner</option>
-                  <option value="snack">Snack</option>
-                </select>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Description
-                </label>
-                <input
-                  type="text"
-                  value={calorieForm.description}
-                  onChange={(e) => setCalorieForm({ ...calorieForm, description: e.target.value })}
-                  placeholder="Optional description"
-                  className="input"
-                />
+              <h2 className="card-title">Today's Calories</h2>
+              <div className="text-sm text-gray-600">
+                Total: {totalCaloriesIn} kcal
               </div>
             </div>
             
-            <button
-              onClick={addCalorieEntry}
-              disabled={saving || !calorieForm.food_name || !calorieForm.calories}
-              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              {saving ? 'Adding...' : 'Add Entry'}
-            </button>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              {['breakfast', 'lunch', 'dinner', 'snack'].map((category) => {
+                const categoryEntries = calorieEntries.filter(entry => entry.category === category);
+                const categoryTotal = categoryEntries.reduce((sum, entry) => sum + entry.calories, 0);
+                
+                return (
+                  <div key={category} className="stat-card">
+                    <div className="stat-value text-blue-600">{categoryTotal}</div>
+                    <div className="stat-label capitalize">{category}</div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* Calorie Entries List */}
           <div className="card animate-fadeIn">
             <div className="card-header">
-              <h2 className="card-title">Today's Entries</h2>
-              <div className="text-sm text-gray-600">
-                Total: {totalCaloriesIn} kcal
-              </div>
+              <h2 className="card-title">Entries</h2>
             </div>
             
             <div className="space-y-3">
@@ -972,6 +1007,7 @@ const BodyTracker: React.FC = () => {
                 <div className="text-center py-8 text-gray-500">
                   <Utensils className="w-8 h-8 mx-auto mb-2 text-gray-300" />
                   <p>No calorie entries for today</p>
+                  <p className="text-xs mt-1">Use the + button to add food entries</p>
                 </div>
               ) : (
                 calorieEntries.map((entry) => (
@@ -1005,98 +1041,7 @@ const BodyTracker: React.FC = () => {
       {/* Workout Tab */}
       {activeTab === 'workout' && (
         <div className="space-y-6">
-          {/* Add Workout Entry */}
-          <div className="card animate-fadeIn">
-            <div className="card-header">
-              <h2 className="card-title">Add Workout Entry</h2>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Exercise Name
-                </label>
-                <input
-                  type="text"
-                  value={workoutForm.exercise_name}
-                  onChange={(e) => setWorkoutForm({ ...workoutForm, exercise_name: e.target.value })}
-                  placeholder="Enter exercise name"
-                  className="input"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Type
-                </label>
-                <select
-                  value={workoutForm.type}
-                  onChange={(e) => setWorkoutForm({ ...workoutForm, type: e.target.value as WorkoutEntry['type'] })}
-                  className="input"
-                >
-                  <option value="duration">Duration</option>
-                  <option value="reps">Repetitions</option>
-                </select>
-              </div>
-              
-              {workoutForm.type === 'duration' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Duration (minutes)
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={workoutForm.duration_minutes}
-                    onChange={(e) => setWorkoutForm({ ...workoutForm, duration_minutes: e.target.value })}
-                    placeholder="Enter duration"
-                    className="input"
-                  />
-                </div>
-              )}
-              
-              {workoutForm.type === 'reps' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Repetitions
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={workoutForm.repetitions}
-                    onChange={(e) => setWorkoutForm({ ...workoutForm, repetitions: e.target.value })}
-                    placeholder="Enter repetitions"
-                    className="input"
-                  />
-                </div>
-              )}
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Calories Burned
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={workoutForm.calories_burned}
-                  onChange={(e) => setWorkoutForm({ ...workoutForm, calories_burned: e.target.value })}
-                  placeholder="Enter calories burned"
-                  className="input"
-                />
-              </div>
-            </div>
-            
-            <button
-              onClick={addWorkoutEntry}
-              disabled={saving || !workoutForm.exercise_name || !workoutForm.calories_burned}
-              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              {saving ? 'Adding...' : 'Add Workout'}
-            </button>
-          </div>
-
-          {/* Workout Entries List */}
+          {/* Workout Summary */}
           <div className="card animate-fadeIn">
             <div className="card-header">
               <h2 className="card-title">Today's Workouts</h2>
@@ -1105,11 +1050,36 @@ const BodyTracker: React.FC = () => {
               </div>
             </div>
             
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="stat-card">
+                <div className="stat-value text-blue-600">{workoutEntries.length}</div>
+                <div className="stat-label">Exercises</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-value text-red-600">{totalCaloriesOut}</div>
+                <div className="stat-label">Calories Burned</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-value text-green-600">
+                  {workoutEntries.filter(e => e.type === 'duration').reduce((sum, e) => sum + (e.duration_minutes || 0), 0)}
+                </div>
+                <div className="stat-label">Total Minutes</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Workout Entries List */}
+          <div className="card animate-fadeIn">
+            <div className="card-header">
+              <h2 className="card-title">Exercises</h2>
+            </div>
+            
             <div className="space-y-3">
               {workoutEntries.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <Dumbbell className="w-8 h-8 mx-auto mb-2 text-gray-300" />
                   <p>No workout entries for today</p>
+                  <p className="text-xs mt-1">Use the + button to add exercises</p>
                 </div>
               ) : (
                 workoutEntries.map((entry) => (
@@ -1146,48 +1116,6 @@ const BodyTracker: React.FC = () => {
       {/* Sleep Tab */}
       {activeTab === 'sleep' && (
         <div className="space-y-6">
-          {/* Add Sleep Entry */}
-          <div className="card animate-fadeIn">
-            <div className="card-header">
-              <h2 className="card-title">Sleep Tracker</h2>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Sleep Start Time
-                </label>
-                <input
-                  type="time"
-                  value={sleepForm.sleep_time}
-                  onChange={(e) => setSleepForm({ ...sleepForm, sleep_time: e.target.value })}
-                  className="input"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Wake Up Time
-                </label>
-                <input
-                  type="time"
-                  value={sleepForm.wake_time}
-                  onChange={(e) => setSleepForm({ ...sleepForm, wake_time: e.target.value })}
-                  className="input"
-                />
-              </div>
-            </div>
-            
-            <button
-              onClick={addSleepEntry}
-              disabled={saving || !sleepForm.sleep_time || !sleepForm.wake_time}
-              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              {saving ? 'Adding...' : 'Add Sleep Entry'}
-            </button>
-          </div>
-
           {/* Sleep Entry Display */}
           <div className="card animate-fadeIn">
             <div className="card-header">
@@ -1198,6 +1126,7 @@ const BodyTracker: React.FC = () => {
               <div className="text-center py-8 text-gray-500">
                 <Moon className="w-8 h-8 mx-auto mb-2 text-gray-300" />
                 <p>No sleep entry for today</p>
+                <p className="text-xs mt-1">Use the + button to add sleep data</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -1221,6 +1150,321 @@ const BodyTracker: React.FC = () => {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Floating Action Button */}
+      {getFloatingButton()}
+
+      {/* Add Entry Modals */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-25 flex items-center justify-center p-3 z-50 modal-overlay">
+          <div className="modal-content max-h-[90vh] overflow-y-auto border border-gray-200">
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-gray-900">
+                  {showAddModal === 'calorie' && 'Add Calorie Entry'}
+                  {showAddModal === 'workout' && 'Add Workout Entry'}
+                  {showAddModal === 'weight' && 'Add Weight Entry'}
+                  {showAddModal === 'sleep' && 'Add Sleep Entry'}
+                </h3>
+                <button
+                  onClick={() => setShowAddModal(null)}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg transition-all duration-200 hover-scale"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Calorie Form */}
+              {showAddModal === 'calorie' && (
+                <form onSubmit={(e) => { e.preventDefault(); addCalorieEntry(); }} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Food Name
+                      </label>
+                      <input
+                        type="text"
+                        value={calorieForm.food_name}
+                        onChange={(e) => setCalorieForm({ ...calorieForm, food_name: e.target.value })}
+                        placeholder="Enter food name"
+                        className="input"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Calories (kcal)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={calorieForm.calories}
+                        onChange={(e) => setCalorieForm({ ...calorieForm, calories: e.target.value })}
+                        placeholder="Enter calories"
+                        className="input"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Category
+                      </label>
+                      <select
+                        value={calorieForm.category}
+                        onChange={(e) => setCalorieForm({ ...calorieForm, category: e.target.value as CalorieEntry['category'] })}
+                        className="input"
+                      >
+                        <option value="breakfast">Breakfast</option>
+                        <option value="lunch">Lunch</option>
+                        <option value="dinner">Dinner</option>
+                        <option value="snack">Snack</option>
+                      </select>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Description
+                      </label>
+                      <input
+                        type="text"
+                        value={calorieForm.description}
+                        onChange={(e) => setCalorieForm({ ...calorieForm, description: e.target.value })}
+                        placeholder="Optional description"
+                        className="input"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="flex space-x-2">
+                    <button
+                      type="submit"
+                      disabled={saving || !calorieForm.food_name || !calorieForm.calories}
+                      className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {saving ? 'Adding...' : 'Add Entry'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddModal(null)}
+                      className="btn-secondary"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Workout Form */}
+              {showAddModal === 'workout' && (
+                <form onSubmit={(e) => { e.preventDefault(); addWorkoutEntry(); }} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Exercise Name
+                      </label>
+                      <input
+                        type="text"
+                        value={workoutForm.exercise_name}
+                        onChange={(e) => setWorkoutForm({ ...workoutForm, exercise_name: e.target.value })}
+                        placeholder="Enter exercise name"
+                        className="input"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Type
+                      </label>
+                      <select
+                        value={workoutForm.type}
+                        onChange={(e) => setWorkoutForm({ ...workoutForm, type: e.target.value as WorkoutEntry['type'] })}
+                        className="input"
+                      >
+                        <option value="duration">Duration</option>
+                        <option value="reps">Repetitions</option>
+                      </select>
+                    </div>
+                    
+                    {workoutForm.type === 'duration' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Duration (minutes)
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={workoutForm.duration_minutes}
+                          onChange={(e) => setWorkoutForm({ ...workoutForm, duration_minutes: e.target.value })}
+                          placeholder="Enter duration"
+                          className="input"
+                        />
+                      </div>
+                    )}
+                    
+                    {workoutForm.type === 'reps' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Repetitions
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={workoutForm.repetitions}
+                          onChange={(e) => setWorkoutForm({ ...workoutForm, repetitions: e.target.value })}
+                          placeholder="Enter repetitions"
+                          className="input"
+                        />
+                      </div>
+                    )}
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Calories Burned
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={workoutForm.calories_burned}
+                        onChange={(e) => setWorkoutForm({ ...workoutForm, calories_burned: e.target.value })}
+                        placeholder="Enter calories burned"
+                        className="input"
+                        required
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="flex space-x-2">
+                    <button
+                      type="submit"
+                      disabled={saving || !workoutForm.exercise_name || !workoutForm.calories_burned}
+                      className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {saving ? 'Adding...' : 'Add Workout'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddModal(null)}
+                      className="btn-secondary"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Weight Form */}
+              {showAddModal === 'weight' && (
+                <form onSubmit={(e) => { e.preventDefault(); addWeightEntry(); }} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Weight (kg)
+                      </label>
+                      <input
+                        type="number"
+                        min="20"
+                        max="300"
+                        step="0.1"
+                        value={weightForm.weight}
+                        onChange={(e) => setWeightForm({ ...weightForm, weight: e.target.value })}
+                        placeholder="Enter your weight"
+                        className="input"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Body Fat % (optional)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        value={weightForm.body_fat}
+                        onChange={(e) => setWeightForm({ ...weightForm, body_fat: e.target.value })}
+                        placeholder="Enter body fat percentage"
+                        className="input"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="flex space-x-2">
+                    <button
+                      type="submit"
+                      disabled={saving || !weightForm.weight}
+                      className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {saving ? 'Adding...' : 'Add Weight'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddModal(null)}
+                      className="btn-secondary"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Sleep Form */}
+              {showAddModal === 'sleep' && (
+                <form onSubmit={(e) => { e.preventDefault(); addSleepEntry(); }} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Sleep Start Time
+                      </label>
+                      <input
+                        type="time"
+                        value={sleepForm.sleep_time}
+                        onChange={(e) => setSleepForm({ ...sleepForm, sleep_time: e.target.value })}
+                        className="input"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Wake Up Time
+                      </label>
+                      <input
+                        type="time"
+                        value={sleepForm.wake_time}
+                        onChange={(e) => setSleepForm({ ...sleepForm, wake_time: e.target.value })}
+                        className="input"
+                        required
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="flex space-x-2">
+                    <button
+                      type="submit"
+                      disabled={saving || !sleepForm.sleep_time || !sleepForm.wake_time}
+                      className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {saving ? 'Adding...' : 'Add Sleep Entry'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddModal(null)}
+                      className="btn-secondary"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
           </div>
         </div>
       )}
