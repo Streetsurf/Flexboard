@@ -16,7 +16,9 @@ import {
   Flame,
   CheckCircle,
   AlertTriangle,
-  Info
+  Info,
+  Trash2,
+  MoreVertical
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
@@ -78,6 +80,8 @@ const BodyTracker: React.FC = () => {
   const [fitnessGoal, setFitnessGoal] = useState<FitnessGoal | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<any>(null);
+  const [showDropdown, setShowDropdown] = useState<string | null>(null);
   const { user } = useAuth();
 
   // Form states
@@ -134,6 +138,16 @@ const BodyTracker: React.FC = () => {
           completed: true,
           user_id: user?.id || '',
           created_at: new Date().toISOString()
+        },
+        {
+          id: '2',
+          date: format(subDays(new Date(), 1), 'yyyy-MM-dd'),
+          exercise_name: 'Running',
+          duration_minutes: 45,
+          calories_burned: 450,
+          completed: true,
+          user_id: user?.id || '',
+          created_at: new Date().toISOString()
         }
       ]);
       
@@ -145,6 +159,16 @@ const BodyTracker: React.FC = () => {
           category: 'breakfast',
           calories: 350,
           description: 'Healthy breakfast',
+          user_id: user?.id || '',
+          created_at: new Date().toISOString()
+        },
+        {
+          id: '2',
+          date: format(new Date(), 'yyyy-MM-dd'),
+          food_name: 'Grilled chicken salad',
+          category: 'lunch',
+          calories: 420,
+          description: 'Protein-rich lunch',
           user_id: user?.id || '',
           created_at: new Date().toISOString()
         }
@@ -256,12 +280,13 @@ const BodyTracker: React.FC = () => {
     };
   };
 
+  // CRUD Operations
   const handleAddWorkout = async (e: React.FormEvent) => {
     e.preventDefault();
     const calories = calculateCaloriesBurned(workoutForm.exercise_name, parseInt(workoutForm.duration_minutes));
     
-    const newWorkout: WorkoutSession = {
-      id: Date.now().toString(),
+    const workoutData: WorkoutSession = {
+      id: editingItem?.id || Date.now().toString(),
       date: workoutForm.date,
       exercise_name: workoutForm.exercise_name,
       duration_minutes: parseInt(workoutForm.duration_minutes),
@@ -271,47 +296,65 @@ const BodyTracker: React.FC = () => {
       calories_burned: calories,
       completed: true,
       user_id: user?.id || '',
-      created_at: new Date().toISOString()
+      created_at: editingItem?.created_at || new Date().toISOString()
     };
     
-    setWorkouts([...workouts, newWorkout]);
+    if (editingItem) {
+      setWorkouts(workouts.map(w => w.id === editingItem.id ? workoutData : w));
+    } else {
+      setWorkouts([...workouts, workoutData]);
+    }
+    
     setShowAddModal(false);
+    setEditingItem(null);
     resetForms();
   };
 
   const handleAddFood = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const newFood: FoodEntry = {
-      id: Date.now().toString(),
+    const foodData: FoodEntry = {
+      id: editingItem?.id || Date.now().toString(),
       date: foodForm.date,
       food_name: foodForm.food_name,
       category: foodForm.category,
       calories: parseInt(foodForm.calories),
       description: foodForm.description,
       user_id: user?.id || '',
-      created_at: new Date().toISOString()
+      created_at: editingItem?.created_at || new Date().toISOString()
     };
     
-    setFoods([...foods, newFood]);
+    if (editingItem) {
+      setFoods(foods.map(f => f.id === editingItem.id ? foodData : f));
+    } else {
+      setFoods([...foods, foodData]);
+    }
+    
     setShowAddModal(false);
+    setEditingItem(null);
     resetForms();
   };
 
   const handleAddProgress = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const newProgress: BodyProgress = {
-      id: Date.now().toString(),
+    const progressData: BodyProgress = {
+      id: editingItem?.id || Date.now().toString(),
       date: progressForm.date,
       weight: parseFloat(progressForm.weight),
       body_fat_percentage: progressForm.body_fat_percentage ? parseFloat(progressForm.body_fat_percentage) : undefined,
       user_id: user?.id || '',
-      created_at: new Date().toISOString()
+      created_at: editingItem?.created_at || new Date().toISOString()
     };
     
-    setBodyProgress([...bodyProgress, newProgress]);
+    if (editingItem) {
+      setBodyProgress(bodyProgress.map(p => p.id === editingItem.id ? progressData : p));
+    } else {
+      setBodyProgress([...bodyProgress, progressData]);
+    }
+    
     setShowAddModal(false);
+    setEditingItem(null);
     resetForms();
   };
 
@@ -333,6 +376,67 @@ const BodyTracker: React.FC = () => {
     setFitnessGoal(updatedGoal);
     setShowAddModal(false);
     resetForms();
+  };
+
+  // Edit functions
+  const handleEditWorkout = (workout: WorkoutSession) => {
+    setEditingItem(workout);
+    setWorkoutForm({
+      date: workout.date,
+      exercise_name: workout.exercise_name,
+      duration_minutes: workout.duration_minutes.toString(),
+      sets: workout.sets?.toString() || '',
+      reps: workout.reps?.toString() || '',
+      weight: workout.weight?.toString() || ''
+    });
+    setShowAddModal(true);
+    setShowDropdown(null);
+  };
+
+  const handleEditFood = (food: FoodEntry) => {
+    setEditingItem(food);
+    setFoodForm({
+      date: food.date,
+      food_name: food.food_name,
+      category: food.category,
+      calories: food.calories.toString(),
+      description: food.description || ''
+    });
+    setShowAddModal(true);
+    setShowDropdown(null);
+  };
+
+  const handleEditProgress = (progress: BodyProgress) => {
+    setEditingItem(progress);
+    setProgressForm({
+      date: progress.date,
+      weight: progress.weight.toString(),
+      body_fat_percentage: progress.body_fat_percentage?.toString() || ''
+    });
+    setShowAddModal(true);
+    setShowDropdown(null);
+  };
+
+  // Delete functions
+  const handleDeleteWorkout = (id: string) => {
+    if (confirm('Are you sure you want to delete this workout?')) {
+      setWorkouts(workouts.filter(w => w.id !== id));
+    }
+    setShowDropdown(null);
+  };
+
+  const handleDeleteFood = (id: string) => {
+    if (confirm('Are you sure you want to delete this food entry?')) {
+      setFoods(foods.filter(f => f.id !== id));
+    }
+    setShowDropdown(null);
+  };
+
+  const handleDeleteProgress = (id: string) => {
+    if (confirm('Are you sure you want to delete this progress entry?')) {
+      setBodyProgress(bodyProgress.filter(p => p.id !== id));
+    }
+    setShowDropdown(null);
   };
 
   const resetForms = () => {
@@ -367,8 +471,50 @@ const BodyTracker: React.FC = () => {
 
   const closeModal = () => {
     setShowAddModal(false);
+    setEditingItem(null);
     resetForms();
   };
+
+  // Dropdown component
+  const ActionDropdown: React.FC<{ 
+    itemId: string; 
+    onEdit: () => void; 
+    onDelete: () => void; 
+  }> = ({ itemId, onEdit, onDelete }) => (
+    <div className="relative">
+      <button
+        onClick={() => setShowDropdown(showDropdown === itemId ? null : itemId)}
+        className="p-1 text-gray-400 hover:text-gray-600 rounded-lg transition-colors"
+      >
+        <MoreVertical className="w-4 h-4" />
+      </button>
+      
+      {showDropdown === itemId && (
+        <>
+          <div 
+            className="fixed inset-0 z-10" 
+            onClick={() => setShowDropdown(null)}
+          />
+          <div className="absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[120px]">
+            <button
+              onClick={onEdit}
+              className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+            >
+              <Edit2 className="w-3 h-3" />
+              <span>Edit</span>
+            </button>
+            <button
+              onClick={onDelete}
+              className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
+            >
+              <Trash2 className="w-3 h-3" />
+              <span>Delete</span>
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
 
   if (loading) {
     return (
@@ -477,12 +623,22 @@ const BodyTracker: React.FC = () => {
                           {workout.sets && workout.reps && (
                             <span> • {workout.sets}×{workout.reps}</span>
                           )}
+                          {workout.weight && (
+                            <span> • {workout.weight}kg</span>
+                          )}
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Flame className="w-4 h-4 text-orange-500" />
-                      <span className="text-sm font-medium text-orange-600">{workout.calories_burned}</span>
+                      <div className="flex items-center space-x-2">
+                        <Flame className="w-4 h-4 text-orange-500" />
+                        <span className="text-sm font-medium text-orange-600">{workout.calories_burned}</span>
+                      </div>
+                      <ActionDropdown
+                        itemId={workout.id}
+                        onEdit={() => handleEditWorkout(workout)}
+                        onDelete={() => handleDeleteWorkout(workout.id)}
+                      />
                     </div>
                   </div>
                 </div>
@@ -532,11 +688,21 @@ const BodyTracker: React.FC = () => {
                       <h3 className="font-medium text-gray-900">{food.food_name}</h3>
                       <div className="text-sm text-gray-600">
                         {food.category.charAt(0).toUpperCase() + food.category.slice(1)} • {format(new Date(food.date), 'MMM d')}
+                        {food.description && (
+                          <span> • {food.description}</span>
+                        )}
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-lg font-semibold text-green-600">{food.calories}</div>
-                      <div className="text-xs text-gray-500">calories</div>
+                    <div className="flex items-center space-x-2">
+                      <div className="text-right">
+                        <div className="text-lg font-semibold text-green-600">{food.calories}</div>
+                        <div className="text-xs text-gray-500">calories</div>
+                      </div>
+                      <ActionDropdown
+                        itemId={food.id}
+                        onEdit={() => handleEditFood(food)}
+                        onDelete={() => handleDeleteFood(food.id)}
+                      />
                     </div>
                   </div>
                 </div>
@@ -597,6 +763,31 @@ const BodyTracker: React.FC = () => {
                   </LineChart>
                 </ResponsiveContainer>
               </div>
+            </div>
+
+            {/* Progress Entries */}
+            <div className="space-y-3">
+              <h4 className="font-medium text-gray-900">Progress Entries</h4>
+              {bodyProgress.map((progress) => (
+                <div key={progress.id} className="p-4 border border-gray-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-medium text-gray-900">{format(new Date(progress.date), 'MMM d, yyyy')}</h3>
+                      <div className="text-sm text-gray-600">
+                        Weight: {progress.weight}kg
+                        {progress.body_fat_percentage && (
+                          <span> • Body Fat: {progress.body_fat_percentage}%</span>
+                        )}
+                      </div>
+                    </div>
+                    <ActionDropdown
+                      itemId={progress.id}
+                      onEdit={() => handleEditProgress(progress)}
+                      onDelete={() => handleDeleteProgress(progress.id)}
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -726,14 +917,14 @@ const BodyTracker: React.FC = () => {
         )}
       </div>
 
-      {/* Add Data Modal */}
+      {/* Add/Edit Data Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-25 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-semibold text-gray-900">
-                  Add {activeTab === 'workout' ? 'Workout' : 
+                  {editingItem ? 'Edit' : 'Add'} {activeTab === 'workout' ? 'Workout' : 
                        activeTab === 'calories' ? 'Food Entry' : 
                        activeTab === 'progress' ? 'Body Progress' : 'Fitness Goal'}
                 </h3>
@@ -813,7 +1004,7 @@ const BodyTracker: React.FC = () => {
                   <div className="flex space-x-3 pt-4">
                     <button type="submit" className="flex-1 btn-primary">
                       <Save className="w-4 h-4 mr-2" />
-                      Save Workout
+                      {editingItem ? 'Update' : 'Save'} Workout
                     </button>
                     <button type="button" onClick={closeModal} className="btn-secondary">Cancel</button>
                   </div>
@@ -884,7 +1075,7 @@ const BodyTracker: React.FC = () => {
                   <div className="flex space-x-3 pt-4">
                     <button type="submit" className="flex-1 btn-primary">
                       <Save className="w-4 h-4 mr-2" />
-                      Save Food
+                      {editingItem ? 'Update' : 'Save'} Food
                     </button>
                     <button type="button" onClick={closeModal} className="btn-secondary">Cancel</button>
                   </div>
@@ -932,7 +1123,7 @@ const BodyTracker: React.FC = () => {
                   <div className="flex space-x-3 pt-4">
                     <button type="submit" className="flex-1 btn-primary">
                       <Save className="w-4 h-4 mr-2" />
-                      Save Progress
+                      {editingItem ? 'Update' : 'Save'} Progress
                     </button>
                     <button type="button" onClick={closeModal} className="btn-secondary">Cancel</button>
                   </div>
