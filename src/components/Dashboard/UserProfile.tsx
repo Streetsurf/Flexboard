@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { User, Mail, Calendar, Save, Edit2, X, Download } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
-import { triggerDataUpdate } from '../../hooks/useGlobalState';
 
 interface UserProfile {
   id: string;
@@ -16,13 +15,12 @@ interface UserProfile {
 
 interface UserProfileProps {
   onProfileUpdate?: () => void;
-  globalData?: UserProfile;
 }
 
-const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }) => {
-  const [profile, setProfile] = useState<UserProfile | null>(globalData || null);
+const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate }) => {
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [loading, setLoading] = useState(!globalData);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'general' | 'billing' | 'password'>('general');
   const [editForm, setEditForm] = useState({
@@ -33,18 +31,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }
   const { user } = useAuth();
 
   useEffect(() => {
-    if (globalData) {
-      setProfile(globalData);
-      setEditForm({
-        full_name: globalData.full_name || '',
-        bio: globalData.bio || '',
-        avatar_url: globalData.avatar_url || ''
-      });
-      setLoading(false);
-    } else if (user) {
+    if (user) {
       fetchProfile();
     }
-  }, [globalData, user]);
+  }, [user]);
 
   const fetchProfile = async () => {
     try {
@@ -115,9 +105,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }
       setProfile(data);
       setIsEditing(false);
       
-      // Trigger global state updates
       window.dispatchEvent(new CustomEvent('profileUpdated'));
-      triggerDataUpdate('profile');
       
       if (onProfileUpdate) {
         onProfileUpdate();

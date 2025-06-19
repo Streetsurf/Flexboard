@@ -4,20 +4,20 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables. Please check your .env file.');
+  throw new Error('Missing Supabase environment variables');
 }
 
-// Enhanced Supabase client configuration with better error handling
+// Optimized Supabase client configuration for faster loading
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
-    detectSessionInUrl: false,
+    detectSessionInUrl: false, // Faster initial load
     flowType: 'pkce'
   },
   realtime: {
     params: {
-      eventsPerSecond: 2
+      eventsPerSecond: 2 // Reduced for better performance
     }
   },
   global: {
@@ -25,20 +25,18 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       'x-client-info': 'flexboard-app'
     },
     fetch: (url, options = {}) => {
-      // Add timeout and better error handling
+      // Optimized fetch with increased timeout for better reliability
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // Increased to 15 seconds
       
       return fetch(url, {
         ...options,
         signal: controller.signal,
+        // Add performance optimizations
+        keepalive: true,
+        cache: 'no-cache'
       }).finally(() => {
         clearTimeout(timeoutId);
-      }).catch((error) => {
-        if (error.name === 'AbortError') {
-          throw new Error('Request timeout - please check your internet connection');
-        }
-        throw error;
       });
     }
   },
@@ -46,15 +44,3 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     schema: 'public'
   }
 });
-
-// Test connection function
-export const testSupabaseConnection = async () => {
-  try {
-    const { data, error } = await supabase.from('profiles').select('count').limit(1);
-    if (error) throw error;
-    return true;
-  } catch (error) {
-    console.error('Supabase connection test failed:', error);
-    return false;
-  }
-};

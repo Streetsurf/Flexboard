@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, Suspense, lazy, memo } from 'react';
+import React, { useState, useCallback, useMemo, Suspense, lazy } from 'react';
 import DashboardHeader from './DashboardHeader';
 import TodoList from './TodoList';
 import DailyJournal from './DailyJournal';
@@ -6,7 +6,6 @@ import LearningTracker from './LearningTracker';
 import QuickAccessLinks from './QuickAccessLinks';
 import PromptBank from './PromptBank';
 import UserProfile from './UserProfile';
-import { useGlobalState } from '../../hooks/useGlobalState';
 import { 
   CheckSquare, 
   BookOpen, 
@@ -78,66 +77,16 @@ const categories: Category[] = [
   }
 ];
 
-// Memoized loading component for lazy loaded components
-const ComponentLoader = memo(() => (
+// Loading component for lazy loaded components
+const ComponentLoader = () => (
   <div className="flex items-center justify-center py-8">
     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
   </div>
-));
-
-// Memoized dashboard overview component
-const DashboardOverview = memo(({ globalState }: { globalState: any }) => (
-  <div className="space-y-4">
-    {/* Quick Links at the top */}
-    <div className="animate-fadeIn">
-      <QuickAccessLinks globalData={globalState.quickLinks} />
-    </div>
-    
-    {/* Mobile: Stack all components */}
-    <div className="block lg:hidden space-y-4">
-      <div className="stagger-item">
-        <TodoList readOnly={true} globalData={globalState.todos} />
-      </div>
-      <div className="stagger-item">
-        <DailyJournal readOnly={true} globalData={globalState.journalEntries} />
-      </div>
-      <div className="stagger-item">
-        <LearningTracker readOnly={true} globalData={globalState.learningGoals} />
-      </div>
-      <div className="stagger-item">
-        <PromptBank readOnly={true} globalData={globalState.prompts} />
-      </div>
-    </div>
-    
-    {/* Desktop: Grid layout */}
-    <div className="hidden lg:grid lg:grid-cols-3 gap-4">
-      {/* Left Column */}
-      <div className="lg:col-span-2 space-y-4">
-        <div className="stagger-item">
-          <TodoList readOnly={true} globalData={globalState.todos} />
-        </div>
-        <div className="stagger-item">
-          <LearningTracker readOnly={true} globalData={globalState.learningGoals} />
-        </div>
-      </div>
-      
-      {/* Right Column */}
-      <div className="space-y-4">
-        <div className="stagger-item">
-          <DailyJournal readOnly={true} globalData={globalState.journalEntries} />
-        </div>
-        <div className="stagger-item">
-          <PromptBank readOnly={true} globalData={globalState.prompts} />
-        </div>
-      </div>
-    </div>
-  </div>
-));
+);
 
 const Dashboard: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<CategoryType>('all');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { state: globalState, loading: globalLoading } = useGlobalState();
 
   // Memoize handlers to prevent unnecessary re-renders
   const handleCategorySelect = useCallback((categoryId: CategoryType) => {
@@ -181,17 +130,8 @@ const Dashboard: React.FC = () => {
     };
   }, [activeCategory]);
 
-  // Optimized content rendering with lazy loading and global state
+  // Optimized content rendering with lazy loading
   const renderContent = useCallback(() => {
-    // Don't render content if still loading to prevent flickering
-    if (globalLoading) {
-      return (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        </div>
-      );
-    }
-
     switch (activeCategory) {
       case 'analytics':
         return (
@@ -200,59 +140,68 @@ const Dashboard: React.FC = () => {
           </Suspense>
         );
       case 'todos':
-        return <TodoList readOnly={false} globalData={globalState.todos} />;
+        return <TodoList readOnly={false} />;
       case 'journal':
-        return <DailyJournal readOnly={false} globalData={globalState.journalEntries} />;
+        return <DailyJournal readOnly={false} />;
       case 'content':
         return (
           <Suspense fallback={<ComponentLoader />}>
-            <ChannelManager globalData={{ 
-              channels: globalState.channels, 
-              contentItems: globalState.contentItems 
-            }} />
+            <ChannelManager />
           </Suspense>
         );
       case 'learning':
-        return <LearningTracker readOnly={false} globalData={globalState.learningGoals} />;
+        return <LearningTracker readOnly={false} />;
       case 'body':
         return (
           <Suspense fallback={<ComponentLoader />}>
-            <BodyTracker globalData={{
-              profile: globalState.profile,
-              calorieEntries: globalState.calorieEntries,
-              workoutEntries: globalState.workoutEntries,
-              weightEntries: globalState.weightEntries,
-              sleepEntries: globalState.sleepEntries
-            }} />
+            <BodyTracker />
           </Suspense>
         );
       case 'links':
         return (
           <Suspense fallback={<ComponentLoader />}>
-            <QuickLinksManager globalData={globalState.quickLinks} />
+            <QuickLinksManager />
           </Suspense>
         );
       case 'prompts':
-        return <PromptBank readOnly={false} globalData={globalState.prompts} />;
+        return <PromptBank readOnly={false} />;
       case 'profile':
-        return <UserProfile globalData={globalState.profile} />;
+        return <UserProfile />;
       case 'all':
       default:
-        return <DashboardOverview globalState={globalState} />;
+        return (
+          <div className="space-y-4">
+            {/* Quick Links at the top */}
+            <div className="animate-fadeIn">
+              <QuickAccessLinks />
+            </div>
+            
+            {/* Mobile: Stack all components */}
+            <div className="block lg:hidden space-y-4">
+              <div className="stagger-item"><TodoList readOnly={true} /></div>
+              <div className="stagger-item"><DailyJournal readOnly={true} /></div>
+              <div className="stagger-item"><LearningTracker readOnly={true} /></div>
+              <div className="stagger-item"><PromptBank readOnly={true} /></div>
+            </div>
+            
+            {/* Desktop: Grid layout */}
+            <div className="hidden lg:grid lg:grid-cols-3 gap-4">
+              {/* Left Column */}
+              <div className="lg:col-span-2 space-y-4">
+                <div className="stagger-item"><TodoList readOnly={true} /></div>
+                <div className="stagger-item"><LearningTracker readOnly={true} /></div>
+              </div>
+              
+              {/* Right Column */}
+              <div className="space-y-4">
+                <div className="stagger-item"><DailyJournal readOnly={true} /></div>
+                <div className="stagger-item"><PromptBank readOnly={true} /></div>
+              </div>
+            </div>
+          </div>
+        );
     }
-  }, [activeCategory, globalState, globalLoading]);
-
-  // Show loading state while global data is loading
-  if (globalLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading FlexBoard...</p>
-        </div>
-      </div>
-    );
-  }
+  }, [activeCategory]);
 
   return (
     <div className="min-h-screen bg-gray-50">

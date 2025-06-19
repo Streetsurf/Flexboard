@@ -206,7 +206,7 @@
   }
 }
 
-/* Animation classes with reduced motion support */
+/* Animation classes */
 .animate-fadeIn {
   animation: fadeIn 0.4s ease-out;
 }
@@ -251,35 +251,12 @@
   animation: glow 2s ease-in-out infinite;
 }
 
-/* Respect user's motion preferences */
-@media (prefers-reduced-motion: reduce) {
-  .animate-fadeIn,
-  .animate-slideIn,
-  .animate-slideUp,
-  .animate-slideDown,
-  .animate-scaleIn,
-  .animate-bounce,
-  .animate-pulse,
-  .animate-spin,
-  .animate-wiggle,
-  .animate-shimmer,
-  .animate-glow {
-    animation: none;
-  }
-  
-  .stagger-item {
-    opacity: 1;
-    animation: none;
-  }
-}
-
 /* ========================================
    🎯 ENHANCED HOVER ANIMATIONS
    ======================================== */
 
 .hover-lift {
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: transform, box-shadow;
 }
 
 .hover-lift:hover {
@@ -289,7 +266,6 @@
 
 .hover-scale {
   transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: transform;
 }
 
 .hover-scale:hover {
@@ -298,7 +274,6 @@
 
 .hover-glow {
   transition: all 0.3s ease-out;
-  will-change: box-shadow;
 }
 
 .hover-glow:hover {
@@ -307,7 +282,6 @@
 
 .hover-rotate {
   transition: transform 0.3s ease-out;
-  will-change: transform;
 }
 
 .hover-rotate:hover {
@@ -316,7 +290,6 @@
 
 .hover-bounce {
   transition: transform 0.2s ease-out;
-  will-change: transform;
 }
 
 .hover-bounce:hover {
@@ -375,7 +348,6 @@
 .card {
   @apply bg-white border border-gray-200 rounded-2xl p-4 hover-lift animate-fadeIn;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
-  will-change: transform, box-shadow;
 }
 
 .card:hover {
@@ -406,7 +378,6 @@
 .input {
   @apply w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white text-gray-900 placeholder-gray-500 text-sm;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  will-change: box-shadow, border-color;
 }
 
 .input:focus {
@@ -416,7 +387,6 @@
 .textarea {
   @apply w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none transition-all duration-200 bg-white text-gray-900 placeholder-gray-500 text-sm;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  will-change: box-shadow, border-color;
 }
 
 .textarea:focus {
@@ -426,7 +396,6 @@
 .select {
   @apply w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white text-gray-900 text-sm;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  will-change: box-shadow, border-color;
 }
 
 .select:focus {
@@ -486,7 +455,6 @@
 .progress-fill {
   @apply bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all duration-700 ease-out;
   box-shadow: 0 1px 2px rgba(59, 130, 246, 0.3);
-  will-change: width;
 }
 
 .progress-fill-success {
@@ -552,7 +520,6 @@
 .stat-card {
   @apply bg-white border border-gray-200 rounded-xl p-4 text-center hover-lift animate-fadeIn;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
-  will-change: transform, box-shadow;
 }
 
 .stat-card:hover {
@@ -606,7 +573,6 @@
 .search-input {
   @apply w-full pl-8 pr-3 py-2 border border-gray-200 rounded-xl bg-gray-50 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white transition-all duration-200 placeholder-gray-500 text-sm;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  will-change: background-color, box-shadow;
 }
 
 .search-input:focus {
@@ -724,7 +690,6 @@
 .fab {
   @apply fixed bottom-6 right-6 w-14 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center z-40 hover-lift;
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3), 0 2px 6px rgba(59, 130, 246, 0.2);
-  will-change: transform, box-shadow;
 }
 
 .fab:hover {
@@ -738,7 +703,6 @@
 .toast {
   @apply fixed top-20 right-6 bg-white border border-gray-200 rounded-xl shadow-lg p-4 z-50 animate-slideDown;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1), 0 4px 10px rgba(0, 0, 0, 0.06);
-  will-change: transform, opacity;
 }
 
 .toast-success {
@@ -768,7 +732,6 @@
 .modal-content {
   @apply bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 animate-scaleIn;
   box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25), 0 10px 20px rgba(0, 0, 0, 0.15);
-  will-change: transform, opacity;
 }
 
 .modal-header {
@@ -885,7 +848,6 @@ select:focus-visible {
 
 .micro-bounce {
   @apply transition-transform duration-150;
-  will-change: transform;
 }
 
 .micro-bounce:active {
@@ -894,7 +856,6 @@ select:focus-visible {
 
 .micro-pulse {
   @apply transition-all duration-200;
-  will-change: opacity;
 }
 
 .micro-pulse:hover {
@@ -903,7 +864,6 @@ select:focus-visible {
 
 .micro-wiggle {
   @apply transition-transform duration-200;
-  will-change: transform;
 }
 
 .micro-wiggle:hover {
@@ -1040,7 +1000,6 @@ div.sidebar nav a,
   
   /* FORCE TRANSITIONS */
   transition: all 0.2s ease-out !important;
-  will-change: background-color, color, transform !important;
   
   /* FORCE BASE COLORS */
   color: #6b7280 !important;
@@ -1360,15 +1319,4 @@ div.sidebar nav a *,
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-
-/* Performance optimizations */
-.card,
-.btn-primary,
-.btn-secondary,
-.hover-lift,
-.hover-scale {
-  transform: translateZ(0);
-  backface-visibility: hidden;
-  perspective: 1000px;
 }
