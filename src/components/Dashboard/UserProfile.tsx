@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { User, Mail, Calendar, Save, Edit2, X, Download } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
-import { triggerDataUpdate } from '../../hooks/useGlobalState';
 
 interface UserProfile {
   id: string;
@@ -16,13 +15,12 @@ interface UserProfile {
 
 interface UserProfileProps {
   onProfileUpdate?: () => void;
-  globalData?: UserProfile;
 }
 
-const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }) => {
-  const [profile, setProfile] = useState<UserProfile | null>(globalData || null);
+const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate }) => {
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [loading, setLoading] = useState(!globalData);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'general' | 'billing' | 'password'>('general');
   const [editForm, setEditForm] = useState({
@@ -33,18 +31,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }
   const { user } = useAuth();
 
   useEffect(() => {
-    if (globalData) {
-      setProfile(globalData);
-      setEditForm({
-        full_name: globalData.full_name || '',
-        bio: globalData.bio || '',
-        avatar_url: globalData.avatar_url || ''
-      });
-      setLoading(false);
-    } else if (user) {
+    if (user) {
       fetchProfile();
     }
-  }, [globalData, user]);
+  }, [user]);
 
   const fetchProfile = async () => {
     try {
@@ -116,7 +106,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }
       setIsEditing(false);
       
       window.dispatchEvent(new CustomEvent('profileUpdated'));
-      triggerDataUpdate('profile');
       
       if (onProfileUpdate) {
         onProfileUpdate();
@@ -138,7 +127,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }
   };
 
   // Mock data for demonstration
-  const mockData = [
+  const mockReports = [
     { id: 1, name: 'Profile Export', date: '2024-01-15', size: '2.4 MB', status: 'completed' },
     { id: 2, name: 'Task History', date: '2024-01-10', size: '1.8 MB', status: 'completed' },
     { id: 3, name: 'Analytics Report', date: '2024-01-05', size: '3.2 MB', status: 'processing' },
@@ -543,7 +532,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }
                   </tr>
                 </thead>
                 <tbody>
-                  {mockData.map((item) => (
+                  {mockReports.map((item) => (
                     <tr key={item.id}>
                       <td className="font-medium">{item.name}</td>
                       <td className="px-4 text-gray-600">{item.date}</td>

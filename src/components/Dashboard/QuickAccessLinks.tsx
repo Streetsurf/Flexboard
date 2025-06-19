@@ -2,11 +2,7 @@ import React from 'react';
 import QuickLinksHorizontal from './QuickLinksHorizontal';
 import { Link } from 'lucide-react';
 
-interface QuickAccessLinksProps {
-  globalData?: any[];
-}
-
-const QuickAccessLinks: React.FC<QuickAccessLinksProps> = ({ globalData = [] }) => {
+const QuickAccessLinks: React.FC = () => {
   return (
     <div className="card animate-fadeIn">
       {/* Header */}
@@ -20,7 +16,7 @@ const QuickAccessLinks: React.FC<QuickAccessLinksProps> = ({ globalData = [] }) 
       </div>
 
       {/* Quick Links Display */}
-      <QuickLinksHorizontal globalData={globalData} />
+      <QuickLinksHorizontal />
     </div>
   );
 };
