@@ -1,87 +1,64 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Dumbbell, Target, TrendingUp, Calendar, Plus, X, Save, Edit2, Trash2, Activity, Utensils, Scale, BarChart3 } from 'lucide-react';
-import { format, subDays, startOfWeek, endOfWeek, isToday } from 'date-fns';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  AreaChart,
-  Area
-} from 'recharts';
+import React, { useState, useEffect } from 'react';
+import { Dumbbell, Target, Utensils, TrendingUp, BarChart3, Edit2, Trash2, Plus, Save, X, User, Activity } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../hooks/useAuth';
+import { format, subDays, startOfWeek, endOfWeek } from 'date-fns';
 
-// Types
 interface UserProfile {
   id: string;
   age: number;
   gender: 'male' | 'female';
   height: number; // cm
   weight: number; // kg
-  activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
-  bmr: number;
-  tdee: number;
-}
-
-interface FitnessGoal {
-  id: string;
-  mode: 'cutting' | 'bulking' | 'maintenance';
-  targetWeight: number;
-  targetDate: string;
-  dailyCalories: number;
-  currentWeight: number;
+  activity_level: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
+  goal_mode: 'cutting' | 'bulking' | 'maintenance';
+  target_weight?: number;
+  body_fat_percentage?: number;
 }
 
 interface CalorieEntry {
   id: string;
-  date: string;
-  category: 'breakfast' | 'lunch' | 'dinner' | 'snack';
-  food: string;
+  food_name: string;
+  category: string;
   calories: number;
   description?: string;
+  date: string;
+  user_id: string;
 }
 
 interface WorkoutEntry {
   id: string;
+  exercise_name: string;
+  duration_minutes?: number;
+  repetitions?: number;
+  calories_burned: number;
   date: string;
-  exercise: string;
-  duration?: number; // minutes
-  sets?: number;
-  reps?: number;
-  weight?: number; // kg
-  caloriesBurned: number;
+  user_id: string;
 }
 
 interface BodyProgress {
   id: string;
-  date: string;
   weight: number;
-  bodyFat?: number;
-}
-
-interface WeeklyStats {
-  totalWorkouts: number;
-  weightChange: number;
-  caloriesBurned: number;
-  avgDailyCalories: number;
+  body_fat_percentage?: number;
+  date: string;
+  user_id: string;
 }
 
 const BodyTracker: React.FC = () => {
-  // State management
-  const [activeTab, setActiveTab] = useState<'profile' | 'goals' | 'calories' | 'workouts' | 'progress' | 'stats'>('profile');
-  const [showModal, setShowModal] = useState(false);
-  const [modalType, setModalType] = useState<'profile' | 'goal' | 'calorie' | 'workout' | 'progress'>('profile');
-  const [editingItem, setEditingItem] = useState<any>(null);
-  const [selectedDate, setSelectedDate] = useState(new Date());
-
-  // Mock data - in real app, this would come from Supabase
+  const [activeTab, setActiveTab] = useState<'profile' | 'target' | 'calories' | 'workout' | 'progress' | 'stats'>('profile');
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [fitnessGoal, setFitnessGoal] = useState<FitnessGoal | null>(null);
   const [calorieEntries, setCalorieEntries] = useState<CalorieEntry[]>([]);
   const [workoutEntries, setWorkoutEntries] = useState<WorkoutEntry[]>([]);
   const [bodyProgress, setBodyProgress] = useState<BodyProgress[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showEditProfile, setShowEditProfile] = useState(false);
+  const [showAddCalorie, setShowAddCalorie] = useState(false);
+  const [showAddWorkout, setShowAddWorkout] = useState(false);
+  const [showAddProgress, setShowAddProgress] = useState(false);
+  const [editingCalorie, setEditingCalorie] = useState<CalorieEntry | null>(null);
+  const [editingWorkout, setEditingWorkout] = useState<WorkoutEntry | null>(null);
+  const [editingProgress, setEditingProgress] = useState<BodyProgress | null>(null);
+  const { user } = useAuth();
 
   // Form states
   const [profileForm, setProfileForm] = useState({
@@ -89,1402 +66,1244 @@ const BodyTracker: React.FC = () => {
     gender: 'male' as 'male' | 'female',
     height: 170,
     weight: 70,
-    activityLevel: 'moderate' as UserProfile['activityLevel']
-  });
-
-  const [goalForm, setGoalForm] = useState({
-    mode: 'maintenance' as FitnessGoal['mode'],
-    targetWeight: 70,
-    targetDate: format(new Date(), 'yyyy-MM-dd'),
-    currentWeight: 70
+    activity_level: 'moderate' as UserProfile['activity_level'],
+    goal_mode: 'maintenance' as UserProfile['goal_mode'],
+    target_weight: 70,
+    body_fat_percentage: 15
   });
 
   const [calorieForm, setCalorieForm] = useState({
-    category: 'breakfast' as CalorieEntry['category'],
-    food: '',
+    food_name: '',
+    category: 'breakfast',
     calories: 0,
     description: ''
   });
 
   const [workoutForm, setWorkoutForm] = useState({
-    exercise: '',
-    duration: 30,
-    sets: 3,
-    reps: 10,
-    weight: 0
+    exercise_name: '',
+    duration_minutes: 30,
+    repetitions: 0,
+    calories_burned: 0
   });
 
   const [progressForm, setProgressForm] = useState({
     weight: 70,
-    bodyFat: 15
+    body_fat_percentage: 15
   });
 
-  // Calculations
-  const calculateBMR = useCallback((age: number, gender: 'male' | 'female', height: number, weight: number): number => {
-    if (gender === 'male') {
-      return (10 * weight) + (6.25 * height) - (5 * age) + 5;
-    } else {
-      return (10 * weight) + (6.25 * height) - (5 * age) - 161;
+  useEffect(() => {
+    if (user) {
+      fetchUserProfile();
+      fetchTodayCalories();
+      fetchTodayWorkouts();
+      fetchRecentProgress();
     }
-  }, []);
+  }, [user]);
 
-  const calculateTDEE = useCallback((bmr: number, activityLevel: UserProfile['activityLevel']): number => {
-    const multipliers = {
+  const fetchUserProfile = async () => {
+    try {
+      // This would fetch from a body_profiles table
+      // For now, using mock data
+      setUserProfile({
+        id: user?.id || '',
+        age: 25,
+        gender: 'male',
+        height: 170,
+        weight: 70,
+        activity_level: 'moderate',
+        goal_mode: 'maintenance',
+        target_weight: 70,
+        body_fat_percentage: 15
+      });
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchTodayCalories = async () => {
+    try {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      // Mock data for now
+      setCalorieEntries([
+        {
+          id: '1',
+          food_name: 'Nasi Gudeg',
+          category: 'lunch',
+          calories: 450,
+          description: 'Dengan ayam dan telur',
+          date: today,
+          user_id: user?.id || ''
+        }
+      ]);
+    } catch (error) {
+      console.error('Error fetching calorie entries:', error);
+    }
+  };
+
+  const fetchTodayWorkouts = async () => {
+    try {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      // Mock data for now
+      setWorkoutEntries([
+        {
+          id: '1',
+          exercise_name: 'Push Up',
+          repetitions: 20,
+          calories_burned: 50,
+          date: today,
+          user_id: user?.id || ''
+        }
+      ]);
+    } catch (error) {
+      console.error('Error fetching workout entries:', error);
+    }
+  };
+
+  const fetchRecentProgress = async () => {
+    try {
+      // Mock data for now
+      setBodyProgress([
+        {
+          id: '1',
+          weight: 70,
+          body_fat_percentage: 15,
+          date: format(new Date(), 'yyyy-MM-dd'),
+          user_id: user?.id || ''
+        }
+      ]);
+    } catch (error) {
+      console.error('Error fetching body progress:', error);
+    }
+  };
+
+  // BMR Calculation using Mifflin-St Jeor Equation
+  const calculateBMR = (profile: UserProfile): number => {
+    if (profile.gender === 'male') {
+      return (10 * profile.weight) + (6.25 * profile.height) - (5 * profile.age) + 5;
+    } else {
+      return (10 * profile.weight) + (6.25 * profile.height) - (5 * profile.age) - 161;
+    }
+  };
+
+  // TDEE Calculation
+  const calculateTDEE = (profile: UserProfile): number => {
+    const bmr = calculateBMR(profile);
+    const activityMultipliers = {
       sedentary: 1.2,
       light: 1.375,
       moderate: 1.55,
       active: 1.725,
       very_active: 1.9
     };
-    return bmr * multipliers[activityLevel];
-  }, []);
+    return bmr * activityMultipliers[profile.activity_level];
+  };
 
-  const calculateCaloriesBurned = useCallback((exercise: string, duration: number, weight: number): number => {
-    // MET values for different exercises
-    const metValues: { [key: string]: number } = {
-      'running': 8.0,
-      'weightlifting': 6.0,
-      'swimming': 8.0,
-      'cycling': 7.5,
-      'walking': 3.8,
-      'yoga': 3.0,
-      'basketball': 8.0,
-      'soccer': 10.0,
-      'tennis': 8.0,
-      'dancing': 5.0
-    };
-    
-    const met = metValues[exercise.toLowerCase()] || 5.0;
-    return Math.round((met * weight * duration) / 60);
-  }, []);
-
-  const getDailyCalories = useCallback((tdee: number, mode: FitnessGoal['mode']): number => {
-    switch (mode) {
-      case 'cutting': return Math.round(tdee - 500);
-      case 'bulking': return Math.round(tdee + 300);
-      case 'maintenance': return Math.round(tdee);
-      default: return Math.round(tdee);
+  // Target Calories based on goal
+  const calculateTargetCalories = (profile: UserProfile): number => {
+    const tdee = calculateTDEE(profile);
+    switch (profile.goal_mode) {
+      case 'cutting':
+        return tdee - 500;
+      case 'bulking':
+        return tdee + 300;
+      case 'maintenance':
+      default:
+        return tdee;
     }
-  }, []);
+  };
 
-  // Initialize data
-  useEffect(() => {
-    // Initialize with sample data
-    const bmr = calculateBMR(profileForm.age, profileForm.gender, profileForm.height, profileForm.weight);
-    const tdee = calculateTDEE(bmr, profileForm.activityLevel);
-    
-    setUserProfile({
-      id: '1',
-      ...profileForm,
-      bmr,
-      tdee
-    });
-
-    setFitnessGoal({
-      id: '1',
-      mode: 'maintenance',
-      targetWeight: 70,
-      targetDate: format(new Date(), 'yyyy-MM-dd'),
-      dailyCalories: getDailyCalories(tdee, 'maintenance'),
-      currentWeight: 70
-    });
-
-    // Sample body progress data for chart
-    const progressData: BodyProgress[] = [];
-    for (let i = 13; i >= 0; i--) {
-      const date = subDays(new Date(), i);
-      progressData.push({
-        id: `progress-${i}`,
-        date: format(date, 'yyyy-MM-dd'),
-        weight: 70 + (Math.random() - 0.5) * 2,
-        bodyFat: 15 + (Math.random() - 0.5) * 2
-      });
-    }
-    setBodyProgress(progressData);
-  }, []);
-
-  // Handlers
-  const handleSaveProfile = useCallback(() => {
-    const bmr = calculateBMR(profileForm.age, profileForm.gender, profileForm.height, profileForm.weight);
-    const tdee = calculateTDEE(bmr, profileForm.activityLevel);
-    
-    const newProfile: UserProfile = {
-      id: userProfile?.id || '1',
-      ...profileForm,
-      bmr,
-      tdee
-    };
-    
-    setUserProfile(newProfile);
-    
-    // Update goal calories if goal exists
-    if (fitnessGoal) {
-      const newDailyCalories = getDailyCalories(tdee, fitnessGoal.mode);
-      setFitnessGoal(prev => prev ? { ...prev, dailyCalories: newDailyCalories } : null);
-    }
-    
-    setShowModal(false);
-    setEditingItem(null);
-  }, [profileForm, userProfile, fitnessGoal, calculateBMR, calculateTDEE, getDailyCalories]);
-
-  const handleSaveGoal = useCallback(() => {
-    if (!userProfile) return;
-    
-    const dailyCalories = getDailyCalories(userProfile.tdee, goalForm.mode);
-    
-    const newGoal: FitnessGoal = {
-      id: fitnessGoal?.id || '1',
-      ...goalForm,
-      dailyCalories
-    };
-    
-    setFitnessGoal(newGoal);
-    setShowModal(false);
-    setEditingItem(null);
-  }, [goalForm, userProfile, fitnessGoal, getDailyCalories]);
-
-  const handleSaveCalorie = useCallback(() => {
-    const newEntry: CalorieEntry = {
-      id: editingItem?.id || `calorie-${Date.now()}`,
-      date: format(selectedDate, 'yyyy-MM-dd'),
-      ...calorieForm
-    };
-    
-    if (editingItem) {
-      setCalorieEntries(prev => prev.map(entry => entry.id === editingItem.id ? newEntry : entry));
-    } else {
-      setCalorieEntries(prev => [...prev, newEntry]);
-    }
-    
-    setCalorieForm({ category: 'breakfast', food: '', calories: 0, description: '' });
-    setShowModal(false);
-    setEditingItem(null);
-  }, [calorieForm, selectedDate, editingItem]);
-
-  const handleSaveWorkout = useCallback(() => {
-    if (!userProfile) return;
-    
-    const caloriesBurned = calculateCaloriesBurned(workoutForm.exercise, workoutForm.duration || 30, userProfile.weight);
-    
-    const newEntry: WorkoutEntry = {
-      id: editingItem?.id || `workout-${Date.now()}`,
-      date: format(selectedDate, 'yyyy-MM-dd'),
-      ...workoutForm,
-      caloriesBurned
-    };
-    
-    if (editingItem) {
-      setWorkoutEntries(prev => prev.map(entry => entry.id === editingItem.id ? newEntry : entry));
-    } else {
-      setWorkoutEntries(prev => [...prev, newEntry]);
-    }
-    
-    setWorkoutForm({ exercise: '', duration: 30, sets: 3, reps: 10, weight: 0 });
-    setShowModal(false);
-    setEditingItem(null);
-  }, [workoutForm, selectedDate, editingItem, userProfile, calculateCaloriesBurned]);
-
-  const handleSaveProgress = useCallback(() => {
-    const newEntry: BodyProgress = {
-      id: editingItem?.id || `progress-${Date.now()}`,
-      date: format(selectedDate, 'yyyy-MM-dd'),
-      ...progressForm
-    };
-    
-    if (editingItem) {
-      setBodyProgress(prev => prev.map(entry => entry.id === editingItem.id ? newEntry : entry));
-    } else {
-      setBodyProgress(prev => [...prev, newEntry].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
-    }
-    
-    setProgressForm({ weight: 70, bodyFat: 15 });
-    setShowModal(false);
-    setEditingItem(null);
-  }, [progressForm, selectedDate, editingItem]);
-
-  const handleEdit = useCallback((type: string, item: any) => {
-    setEditingItem(item);
-    setModalType(type as any);
-    
-    switch (type) {
-      case 'profile':
-        if (userProfile) {
-          setProfileForm({
-            age: userProfile.age,
-            gender: userProfile.gender,
-            height: userProfile.height,
-            weight: userProfile.weight,
-            activityLevel: userProfile.activityLevel
-          });
-        }
-        break;
-      case 'goal':
-        if (item) {
-          setGoalForm({
-            mode: item.mode,
-            targetWeight: item.targetWeight,
-            targetDate: item.targetDate,
-            currentWeight: item.currentWeight
-          });
-        }
-        break;
-      case 'calorie':
-        setCalorieForm({
-          category: item.category,
-          food: item.food,
-          calories: item.calories,
-          description: item.description || ''
-        });
-        break;
-      case 'workout':
-        setWorkoutForm({
-          exercise: item.exercise,
-          duration: item.duration || 30,
-          sets: item.sets || 3,
-          reps: item.reps || 10,
-          weight: item.weight || 0
-        });
-        break;
-      case 'progress':
-        setProgressForm({
-          weight: item.weight,
-          bodyFat: item.bodyFat || 15
-        });
-        break;
-    }
-    
-    setShowModal(true);
-  }, [userProfile]);
-
-  const handleDelete = useCallback((type: string, id: string) => {
-    switch (type) {
-      case 'calorie':
-        setCalorieEntries(prev => prev.filter(entry => entry.id !== id));
-        break;
-      case 'workout':
-        setWorkoutEntries(prev => prev.filter(entry => entry.id !== id));
-        break;
-      case 'progress':
-        setBodyProgress(prev => prev.filter(entry => entry.id !== id));
-        break;
-    }
-  }, []);
-
-  const openModal = useCallback((type: typeof modalType) => {
-    setModalType(type);
-    setEditingItem(null);
-    setShowModal(true);
-  }, []);
-
-  const closeModal = useCallback(() => {
-    setShowModal(false);
-    setEditingItem(null);
-    setCalorieForm({ category: 'breakfast', food: '', calories: 0, description: '' });
-    setWorkoutForm({ exercise: '', duration: 30, sets: 3, reps: 10, weight: 0 });
-    setProgressForm({ weight: 70, bodyFat: 15 });
-  }, []);
-
-  // Computed values
-  const todayCalories = useMemo(() => {
-    const today = format(selectedDate, 'yyyy-MM-dd');
-    return calorieEntries.filter(entry => entry.date === today);
-  }, [calorieEntries, selectedDate]);
-
-  const todayWorkouts = useMemo(() => {
-    const today = format(selectedDate, 'yyyy-MM-dd');
-    return workoutEntries.filter(entry => entry.date === today);
-  }, [workoutEntries, selectedDate]);
-
-  const totalCaloriesIn = useMemo(() => {
-    return todayCalories.reduce((sum, entry) => sum + entry.calories, 0);
-  }, [todayCalories]);
-
-  const totalCaloriesOut = useMemo(() => {
-    return todayWorkouts.reduce((sum, entry) => sum + entry.caloriesBurned, 0);
-  }, [todayWorkouts]);
-
-  const netCalories = useMemo(() => {
-    return totalCaloriesIn - totalCaloriesOut;
-  }, [totalCaloriesIn, totalCaloriesOut]);
-
-  const calorieStatus = useMemo(() => {
-    if (!fitnessGoal) return { label: 'Set your goal first', color: 'text-gray-500' };
-    
-    const target = fitnessGoal.dailyCalories;
-    const remaining = target - netCalories;
-    
-    if (remaining > 200) return { label: 'Masih bisa makan', color: 'text-green-600' };
-    if (remaining > 0) return { label: 'Hampir tercapai', color: 'text-yellow-600' };
-    if (remaining >= -100) return { label: 'Target tercapai', color: 'text-green-600' };
-    if (remaining >= -300) return { label: 'Sedikit berlebih', color: 'text-orange-600' };
-    return { label: 'Berlebihan', color: 'text-red-600' };
-  }, [fitnessGoal, netCalories]);
-
-  const weeklyStats = useMemo((): WeeklyStats => {
-    const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-    const weekEnd = endOfWeek(new Date(), { weekStartsOn: 1 });
-    
-    const weekWorkouts = workoutEntries.filter(entry => {
-      const entryDate = new Date(entry.date);
-      return entryDate >= weekStart && entryDate <= weekEnd;
-    });
-    
-    const weekCalories = calorieEntries.filter(entry => {
-      const entryDate = new Date(entry.date);
-      return entryDate >= weekStart && entryDate <= weekEnd;
-    });
-    
-    const currentWeight = bodyProgress[bodyProgress.length - 1]?.weight || 0;
-    const weekAgoWeight = bodyProgress[bodyProgress.length - 8]?.weight || currentWeight;
-    
-    return {
-      totalWorkouts: weekWorkouts.length,
-      weightChange: currentWeight - weekAgoWeight,
-      caloriesBurned: weekWorkouts.reduce((sum, entry) => sum + entry.caloriesBurned, 0),
-      avgDailyCalories: weekCalories.length > 0 ? weekCalories.reduce((sum, entry) => sum + entry.calories, 0) / 7 : 0
-    };
-  }, [workoutEntries, calorieEntries, bodyProgress]);
-
-  const getActivityLevelLabel = (level: UserProfile['activityLevel']) => {
+  const getActivityLevelLabel = (level: UserProfile['activity_level']): string => {
     const labels = {
-      sedentary: 'Sedentary (Jarang aktivitas)',
+      sedentary: 'Sedentary (jarang aktivitas)',
       light: 'Light (1-3x latihan per minggu)',
       moderate: 'Moderate (3-5x latihan per minggu)',
       active: 'Active (6-7x latihan per minggu)',
-      very_active: 'Very Active (Latihan berat setiap hari)'
+      very_active: 'Very Active (latihan berat setiap hari)'
     };
     return labels[level];
   };
 
-  const getModeLabel = (mode: FitnessGoal['mode']) => {
+  const getGoalModeLabel = (mode: UserProfile['goal_mode']): string => {
     const labels = {
-      cutting: 'Cutting (Menurunkan berat badan)',
-      bulking: 'Bulking (Menaikkan berat badan)',
-      maintenance: 'Maintenance (Mempertahankan berat badan)'
+      cutting: 'Cutting (menurunkan berat badan)',
+      bulking: 'Bulking (menaikkan berat badan)',
+      maintenance: 'Maintenance (mempertahankan berat badan)'
     };
     return labels[mode];
   };
 
-  const getModeColor = (mode: FitnessGoal['mode']) => {
-    const colors = {
-      cutting: 'text-red-600 bg-red-50 border-red-200',
-      bulking: 'text-green-600 bg-green-50 border-green-200',
-      maintenance: 'text-blue-600 bg-blue-50 border-blue-200'
-    };
-    return colors[mode];
+  const handleSaveProfile = async () => {
+    try {
+      // Save to database
+      setUserProfile({
+        id: user?.id || '',
+        ...profileForm
+      });
+      setShowEditProfile(false);
+    } catch (error) {
+      console.error('Error saving profile:', error);
+    }
   };
 
-  const getCategoryLabel = (category: CalorieEntry['category']) => {
-    const labels = {
-      breakfast: 'Sarapan',
-      lunch: 'Makan Siang',
-      dinner: 'Makan Malam',
-      snack: 'Cemilan'
-    };
-    return labels[category];
+  const handleAddCalorie = async () => {
+    try {
+      const newEntry: CalorieEntry = {
+        id: Date.now().toString(),
+        ...calorieForm,
+        date: format(new Date(), 'yyyy-MM-dd'),
+        user_id: user?.id || ''
+      };
+      setCalorieEntries([...calorieEntries, newEntry]);
+      setCalorieForm({ food_name: '', category: 'breakfast', calories: 0, description: '' });
+      setShowAddCalorie(false);
+    } catch (error) {
+      console.error('Error adding calorie entry:', error);
+    }
   };
 
-  const chartData = useMemo(() => {
-    return bodyProgress.map(entry => ({
-      date: format(new Date(entry.date), 'MMM dd'),
+  const handleEditCalorie = async () => {
+    if (!editingCalorie) return;
+    try {
+      const updatedEntries = calorieEntries.map(entry =>
+        entry.id === editingCalorie.id ? { ...editingCalorie, ...calorieForm } : entry
+      );
+      setCalorieEntries(updatedEntries);
+      setEditingCalorie(null);
+      setCalorieForm({ food_name: '', category: 'breakfast', calories: 0, description: '' });
+      setShowAddCalorie(false);
+    } catch (error) {
+      console.error('Error editing calorie entry:', error);
+    }
+  };
+
+  const handleDeleteCalorie = async (id: string) => {
+    try {
+      setCalorieEntries(calorieEntries.filter(entry => entry.id !== id));
+    } catch (error) {
+      console.error('Error deleting calorie entry:', error);
+    }
+  };
+
+  const handleAddWorkout = async () => {
+    try {
+      const newEntry: WorkoutEntry = {
+        id: Date.now().toString(),
+        ...workoutForm,
+        date: format(new Date(), 'yyyy-MM-dd'),
+        user_id: user?.id || ''
+      };
+      setWorkoutEntries([...workoutEntries, newEntry]);
+      setWorkoutForm({ exercise_name: '', duration_minutes: 30, repetitions: 0, calories_burned: 0 });
+      setShowAddWorkout(false);
+    } catch (error) {
+      console.error('Error adding workout entry:', error);
+    }
+  };
+
+  const handleEditWorkout = async () => {
+    if (!editingWorkout) return;
+    try {
+      const updatedEntries = workoutEntries.map(entry =>
+        entry.id === editingWorkout.id ? { ...editingWorkout, ...workoutForm } : entry
+      );
+      setWorkoutEntries(updatedEntries);
+      setEditingWorkout(null);
+      setWorkoutForm({ exercise_name: '', duration_minutes: 30, repetitions: 0, calories_burned: 0 });
+      setShowAddWorkout(false);
+    } catch (error) {
+      console.error('Error editing workout entry:', error);
+    }
+  };
+
+  const handleDeleteWorkout = async (id: string) => {
+    try {
+      setWorkoutEntries(workoutEntries.filter(entry => entry.id !== id));
+    } catch (error) {
+      console.error('Error deleting workout entry:', error);
+    }
+  };
+
+  const handleAddProgress = async () => {
+    try {
+      const newEntry: BodyProgress = {
+        id: Date.now().toString(),
+        ...progressForm,
+        date: format(new Date(), 'yyyy-MM-dd'),
+        user_id: user?.id || ''
+      };
+      setBodyProgress([...bodyProgress, newEntry]);
+      setProgressForm({ weight: 70, body_fat_percentage: 15 });
+      setShowAddProgress(false);
+    } catch (error) {
+      console.error('Error adding progress entry:', error);
+    }
+  };
+
+  const handleEditProgress = async () => {
+    if (!editingProgress) return;
+    try {
+      const updatedEntries = bodyProgress.map(entry =>
+        entry.id === editingProgress.id ? { ...editingProgress, ...progressForm } : entry
+      );
+      setBodyProgress(updatedEntries);
+      setEditingProgress(null);
+      setProgressForm({ weight: 70, body_fat_percentage: 15 });
+      setShowAddProgress(false);
+    } catch (error) {
+      console.error('Error editing progress entry:', error);
+    }
+  };
+
+  const handleDeleteProgress = async (id: string) => {
+    try {
+      setBodyProgress(bodyProgress.filter(entry => entry.id !== id));
+    } catch (error) {
+      console.error('Error deleting progress entry:', error);
+    }
+  };
+
+  const openEditCalorie = (entry: CalorieEntry) => {
+    setEditingCalorie(entry);
+    setCalorieForm({
+      food_name: entry.food_name,
+      category: entry.category,
+      calories: entry.calories,
+      description: entry.description || ''
+    });
+    setShowAddCalorie(true);
+  };
+
+  const openEditWorkout = (entry: WorkoutEntry) => {
+    setEditingWorkout(entry);
+    setWorkoutForm({
+      exercise_name: entry.exercise_name,
+      duration_minutes: entry.duration_minutes || 30,
+      repetitions: entry.repetitions || 0,
+      calories_burned: entry.calories_burned
+    });
+    setShowAddWorkout(true);
+  };
+
+  const openEditProgress = (entry: BodyProgress) => {
+    setEditingProgress(entry);
+    setProgressForm({
       weight: entry.weight,
-      bodyFat: entry.bodyFat || 0
-    }));
-  }, [bodyProgress]);
+      body_fat_percentage: entry.body_fat_percentage || 15
+    });
+    setShowAddProgress(true);
+  };
+
+  const getTotalCaloriesConsumed = (): number => {
+    return calorieEntries.reduce((total, entry) => total + entry.calories, 0);
+  };
+
+  const getTotalCaloriesBurned = (): number => {
+    return workoutEntries.reduce((total, entry) => total + entry.calories_burned, 0);
+  };
+
+  const getCalorieStatus = (): { label: string; color: string } => {
+    if (!userProfile) return { label: 'Belum ada data', color: 'text-gray-500' };
+    
+    const targetCalories = calculateTargetCalories(userProfile);
+    const consumedCalories = getTotalCaloriesConsumed();
+    const burnedCalories = getTotalCaloriesBurned();
+    const netCalories = consumedCalories - burnedCalories;
+    const remaining = targetCalories - netCalories;
+
+    if (remaining > 200) {
+      return { label: 'Masih bisa makan', color: 'text-green-600' };
+    } else if (remaining >= 0) {
+      return { label: 'Target tercapai', color: 'text-blue-600' };
+    } else if (remaining >= -200) {
+      return { label: 'Sedikit berlebih', color: 'text-yellow-600' };
+    } else {
+      return { label: 'Berlebihan', color: 'text-red-600' };
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="card animate-fadeIn">
+          <div className="animate-pulse">
+            <div className="h-6 bg-gray-200 rounded w-1/4 mb-4"></div>
+            <div className="space-y-3">
+              <div className="h-4 bg-gray-200 rounded"></div>
+              <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="card animate-fadeIn">
-        <div className="card-header">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-              <Dumbbell className="w-4 h-4 text-white" />
-            </div>
-            <h2 className="card-title">Body Tracker</h2>
+        <div className="flex items-center space-x-3 mb-6">
+          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+            <Dumbbell className="w-4 h-4 text-white" />
           </div>
+          <h1 className="text-xl font-bold text-gray-900">Body Tracker</h1>
         </div>
 
         {/* Tab Navigation */}
-        <div className="border-b border-gray-200 mb-6">
-          <nav className="flex space-x-6">
-            {[
-              { id: 'profile', label: 'Profil', icon: <Activity className="w-4 h-4" /> },
-              { id: 'goals', label: 'Target', icon: <Target className="w-4 h-4" /> },
-              { id: 'calories', label: 'Kalori', icon: <Utensils className="w-4 h-4" /> },
-              { id: 'workouts', label: 'Workout', icon: <Dumbbell className="w-4 h-4" /> },
-              { id: 'progress', label: 'Progress', icon: <Scale className="w-4 h-4" /> },
-              { id: 'stats', label: 'Statistik', icon: <BarChart3 className="w-4 h-4" /> }
-            ].map((tab) => (
+        <div className="flex flex-wrap gap-2 mb-6">
+          {[
+            { id: 'profile', label: 'Profil', icon: User },
+            { id: 'target', label: 'Target', icon: Target },
+            { id: 'calories', label: 'Kalori', icon: Utensils },
+            { id: 'workout', label: 'Workout', icon: Activity },
+            { id: 'progress', label: 'Progress', icon: TrendingUp },
+            { id: 'stats', label: 'Statistik', icon: BarChart3 }
+          ].map((tab) => {
+            const Icon = tab.icon;
+            return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`py-3 px-1 border-b-2 font-medium text-sm transition-all duration-200 flex items-center space-x-2 ${
+                className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
                   activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                 }`}
               >
-                {tab.icon}
+                <Icon className="w-4 h-4" />
                 <span>{tab.label}</span>
               </button>
-            ))}
-          </nav>
-        </div>
-
-        {/* Tab Content */}
-        <div className="animate-fadeIn">
-          {/* Profile Tab */}
-          {activeTab === 'profile' && (
-            <div className="space-y-6">
-              {userProfile ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Informasi Dasar</h3>
-                    <div className="space-y-3">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Umur:</span>
-                        <span className="font-medium">{userProfile.age} tahun</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Gender:</span>
-                        <span className="font-medium">{userProfile.gender === 'male' ? 'Pria' : 'Wanita'}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Tinggi:</span>
-                        <span className="font-medium">{userProfile.height} cm</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Berat:</span>
-                        <span className="font-medium">{userProfile.weight} kg</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Aktivitas:</span>
-                        <span className="font-medium text-xs">{getActivityLevelLabel(userProfile.activityLevel)}</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleEdit('profile', userProfile)}
-                      className="w-full btn-primary"
-                    >
-                      <Edit2 className="w-4 h-4 mr-2" />
-                      Edit Profil
-                    </button>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Perhitungan Metabolisme</h3>
-                    <div className="space-y-4">
-                      <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-blue-700 font-medium">BMR (Basal Metabolic Rate)</span>
-                          <span className="text-xl font-bold text-blue-600">{Math.round(userProfile.bmr)}</span>
-                        </div>
-                        <p className="text-xs text-blue-600">Kalori yang dibutuhkan tubuh saat istirahat</p>
-                      </div>
-                      
-                      <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-green-700 font-medium">TDEE (Total Daily Energy)</span>
-                          <span className="text-xl font-bold text-green-600">{Math.round(userProfile.tdee)}</span>
-                        </div>
-                        <p className="text-xs text-green-600">Total kalori yang dibutuhkan per hari</p>
-                      </div>
-                    </div>
-                    
-                    <div className="p-3 bg-gray-50 rounded-lg">
-                      <h4 className="font-medium text-gray-900 mb-2">Penjelasan:</h4>
-                      <ul className="text-xs text-gray-600 space-y-1">
-                        <li>• BMR dihitung menggunakan rumus Mifflin-St Jeor</li>
-                        <li>• TDEE = BMR × faktor aktivitas harian</li>
-                        <li>• Digunakan sebagai dasar perhitungan target kalori</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <Activity className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-500 mb-4">Belum ada profil. Buat profil untuk memulai tracking.</p>
-                  <button
-                    onClick={() => openModal('profile')}
-                    className="btn-primary"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Buat Profil
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Goals Tab */}
-          {activeTab === 'goals' && (
-            <div className="space-y-6">
-              {fitnessGoal ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Target Fitness</h3>
-                    <div className={`p-4 rounded-lg border ${getModeColor(fitnessGoal.mode)}`}>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="font-medium">Mode:</span>
-                        <span className="font-bold">{getModeLabel(fitnessGoal.mode)}</span>
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-3">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Target Berat:</span>
-                        <span className="font-medium">{fitnessGoal.targetWeight} kg</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Berat Saat Ini:</span>
-                        <span className="font-medium">{fitnessGoal.currentWeight} kg</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Target Date:</span>
-                        <span className="font-medium">{format(new Date(fitnessGoal.targetDate), 'dd MMM yyyy')}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Sisa Hari:</span>
-                        <span className="font-medium">
-                          {Math.max(0, Math.ceil((new Date(fitnessGoal.targetDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))} hari
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <button
-                      onClick={() => handleEdit('goal', fitnessGoal)}
-                      className="w-full btn-primary"
-                    >
-                      <Edit2 className="w-4 h-4 mr-2" />
-                      Edit Target
-                    </button>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Kalori Harian</h3>
-                    <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-purple-700 font-medium">Target Kalori Harian</span>
-                        <span className="text-2xl font-bold text-purple-600">{fitnessGoal.dailyCalories}</span>
-                      </div>
-                      <p className="text-xs text-purple-600">
-                        {fitnessGoal.mode === 'cutting' && 'TDEE - 500 kalori (defisit untuk menurunkan berat)'}
-                        {fitnessGoal.mode === 'bulking' && 'TDEE + 300 kalori (surplus untuk menaikkan berat)'}
-                        {fitnessGoal.mode === 'maintenance' && 'Sesuai TDEE (mempertahankan berat badan)'}
-                      </p>
-                    </div>
-                    
-                    <div className="p-3 bg-gray-50 rounded-lg">
-                      <h4 className="font-medium text-gray-900 mb-2">Tips:</h4>
-                      <ul className="text-xs text-gray-600 space-y-1">
-                        <li>• Cutting: Defisit 500 kalori = turun ~0.5kg/minggu</li>
-                        <li>• Bulking: Surplus 300 kalori = naik ~0.3kg/minggu</li>
-                        <li>• Maintenance: Kalori seimbang = berat stabil</li>
-                        <li>• Konsistensi lebih penting dari kesempurnaan</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <Target className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-500 mb-4">Belum ada target fitness. Set target untuk memulai journey.</p>
-                  <button
-                    onClick={() => openModal('goal')}
-                    className="btn-primary"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Set Target
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Calories Tab */}
-          {activeTab === 'calories' && (
-            <div className="space-y-6">
-              {/* Date Selector */}
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Tracking Kalori - {format(selectedDate, 'dd MMM yyyy')}
-                </h3>
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="date"
-                    value={format(selectedDate, 'yyyy-MM-dd')}
-                    onChange={(e) => setSelectedDate(new Date(e.target.value))}
-                    className="input text-sm"
-                  />
-                  <button
-                    onClick={() => openModal('calorie')}
-                    className="btn-primary"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Tambah
-                  </button>
-                </div>
-              </div>
-
-              {/* Calorie Summary */}
-              {fitnessGoal && (
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-blue-600">{totalCaloriesIn}</div>
-                      <div className="text-xs text-blue-600">Kalori Masuk</div>
-                    </div>
-                  </div>
-                  <div className="p-4 bg-red-50 rounded-lg border border-red-200">
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-red-600">{totalCaloriesOut}</div>
-                      <div className="text-xs text-red-600">Kalori Keluar</div>
-                    </div>
-                  </div>
-                  <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-purple-600">{netCalories}</div>
-                      <div className="text-xs text-purple-600">Net Kalori</div>
-                    </div>
-                  </div>
-                  <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-gray-600">{fitnessGoal.dailyCalories}</div>
-                      <div className="text-xs text-gray-600">Target Harian</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Status */}
-              {fitnessGoal && (
-                <div className="p-4 bg-white rounded-lg border border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-gray-900">Status Kalori Hari Ini:</span>
-                    <span className={`font-bold ${calorieStatus.color}`}>{calorieStatus.label}</span>
-                  </div>
-                  <div className="mt-2 text-sm text-gray-600">
-                    {fitnessGoal.dailyCalories - netCalories > 0 
-                      ? `Sisa ${fitnessGoal.dailyCalories - netCalories} kalori lagi`
-                      : `Kelebihan ${netCalories - fitnessGoal.dailyCalories} kalori`
-                    }
-                  </div>
-                </div>
-              )}
-
-              {/* Calorie Entries */}
-              <div className="space-y-4">
-                {['breakfast', 'lunch', 'dinner', 'snack'].map(category => {
-                  const categoryEntries = todayCalories.filter(entry => entry.category === category);
-                  const categoryTotal = categoryEntries.reduce((sum, entry) => sum + entry.calories, 0);
-                  
-                  return (
-                    <div key={category} className="p-4 bg-white rounded-lg border border-gray-200">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-medium text-gray-900">{getCategoryLabel(category as CalorieEntry['category'])}</h4>
-                        <span className="text-sm font-medium text-gray-600">{categoryTotal} kal</span>
-                      </div>
-                      
-                      {categoryEntries.length > 0 ? (
-                        <div className="space-y-2">
-                          {categoryEntries.map(entry => (
-                            <div key={entry.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                              <div className="flex-1">
-                                <div className="font-medium text-sm">{entry.food}</div>
-                                {entry.description && (
-                                  <div className="text-xs text-gray-500">{entry.description}</div>
-                                )}
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <span className="text-sm font-medium">{entry.calories} kal</span>
-                                <button
-                                  onClick={() => handleEdit('calorie', entry)}
-                                  className="p-1 text-blue-500 hover:bg-blue-50 rounded"
-                                  title="Edit"
-                                >
-                                  <Edit2 className="w-3 h-3" />
-                                </button>
-                                <button
-                                  onClick={() => handleDelete('calorie', entry.id)}
-                                  className="p-1 text-red-500 hover:bg-red-50 rounded"
-                                  title="Delete"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-center py-4 text-gray-500 text-sm">
-                          Belum ada makanan untuk {getCategoryLabel(category as CalorieEntry['category']).toLowerCase()}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Workouts Tab */}
-          {activeTab === 'workouts' && (
-            <div className="space-y-6">
-              {/* Date Selector */}
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Workout - {format(selectedDate, 'dd MMM yyyy')}
-                </h3>
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="date"
-                    value={format(selectedDate, 'yyyy-MM-dd')}
-                    onChange={(e) => setSelectedDate(new Date(e.target.value))}
-                    className="input text-sm"
-                  />
-                  <button
-                    onClick={() => openModal('workout')}
-                    className="btn-primary"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Tambah
-                  </button>
-                </div>
-              </div>
-
-              {/* Workout Summary */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-green-600">{todayWorkouts.length}</div>
-                    <div className="text-xs text-green-600">Total Workout</div>
-                  </div>
-                </div>
-                <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-orange-600">{totalCaloriesOut}</div>
-                    <div className="text-xs text-orange-600">Kalori Terbakar</div>
-                  </div>
-                </div>
-                <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-purple-600">
-                      {todayWorkouts.reduce((sum, entry) => sum + (entry.duration || 0), 0)}
-                    </div>
-                    <div className="text-xs text-purple-600">Total Menit</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Workout Entries */}
-              <div className="space-y-4">
-                {todayWorkouts.length > 0 ? (
-                  todayWorkouts.map(entry => (
-                    <div key={entry.id} className="p-4 bg-white rounded-lg border border-gray-200">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <h4 className="font-medium text-gray-900 capitalize">{entry.exercise}</h4>
-                          <div className="text-sm text-gray-600 mt-1">
-                            {entry.duration && `${entry.duration} menit`}
-                            {entry.sets && entry.reps && ` • ${entry.sets} sets × ${entry.reps} reps`}
-                            {entry.weight && ` • ${entry.weight} kg`}
-                          </div>
-                          <div className="text-sm font-medium text-orange-600 mt-1">
-                            🔥 {entry.caloriesBurned} kalori terbakar
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <button
-                            onClick={() => handleEdit('workout', entry)}
-                            className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"
-                            title="Edit"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete('workout', entry.id)}
-                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-center py-8">
-                    <Dumbbell className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                    <p className="text-gray-500 mb-4">Belum ada workout hari ini</p>
-                    <button
-                      onClick={() => openModal('workout')}
-                      className="btn-primary"
-                    >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Tambah Workout
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Progress Tab */}
-          {activeTab === 'progress' && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">Body Progress</h3>
-                <button
-                  onClick={() => openModal('progress')}
-                  className="btn-primary"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Tambah Data
-                </button>
-              </div>
-
-              {/* Weight Chart */}
-              <div className="p-4 bg-white rounded-lg border border-gray-200">
-                <h4 className="font-medium text-gray-900 mb-4">Grafik Berat Badan (2 Minggu Terakhir)</h4>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                      <XAxis 
-                        dataKey="date" 
-                        tick={{ fontSize: 12 }}
-                        interval="preserveStartEnd"
-                      />
-                      <YAxis 
-                        tick={{ fontSize: 12 }}
-                        domain={['dataMin - 1', 'dataMax + 1']}
-                      />
-                      <Tooltip 
-                        contentStyle={{
-                          backgroundColor: 'white',
-                          border: '1px solid #e5e7eb',
-                          borderRadius: '8px',
-                          fontSize: '12px'
-                        }}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="weight"
-                        stroke="#3b82f6"
-                        fill="#3b82f6"
-                        fillOpacity={0.1}
-                        strokeWidth={2}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Progress Entries */}
-              <div className="space-y-4">
-                <h4 className="font-medium text-gray-900">Data Terbaru</h4>
-                {bodyProgress.slice(-7).reverse().map(entry => {
-                  const isToday = format(new Date(entry.date), 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
-                  
-                  return (
-                    <div key={entry.id} className={`p-4 rounded-lg border ${isToday ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}>
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2">
-                            <span className="font-medium text-gray-900">
-                              {format(new Date(entry.date), 'dd MMM yyyy')}
-                            </span>
-                            {isToday && (
-                              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">Hari ini</span>
-                            )}
-                          </div>
-                          <div className="text-sm text-gray-600 mt-1">
-                            Berat: {entry.weight} kg
-                            {entry.bodyFat && ` • Body Fat: ${entry.bodyFat.toFixed(1)}%`}
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <button
-                            onClick={() => handleEdit('progress', entry)}
-                            className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"
-                            title="Edit"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete('progress', entry.id)}
-                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Stats Tab */}
-          {activeTab === 'stats' && (
-            <div className="space-y-6">
-              <h3 className="text-lg font-semibold text-gray-900">Statistik Mingguan</h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-green-600">{weeklyStats.totalWorkouts}</div>
-                    <div className="text-xs text-green-600">Total Workout</div>
-                    <div className="text-xs text-green-500 mt-1">Minggu ini</div>
-                  </div>
-                </div>
-                
-                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-blue-600">
-                      {weeklyStats.weightChange > 0 ? '+' : ''}{weeklyStats.weightChange.toFixed(1)}
-                    </div>
-                    <div className="text-xs text-blue-600">Perubahan Berat (kg)</div>
-                    <div className="text-xs text-blue-500 mt-1">vs minggu lalu</div>
-                  </div>
-                </div>
-                
-                <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-orange-600">{weeklyStats.caloriesBurned}</div>
-                    <div className="text-xs text-orange-600">Kalori Terbakar</div>
-                    <div className="text-xs text-orange-500 mt-1">Total minggu ini</div>
-                  </div>
-                </div>
-                
-                <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-purple-600">{Math.round(weeklyStats.avgDailyCalories)}</div>
-                    <div className="text-xs text-purple-600">Rata-rata Kalori</div>
-                    <div className="text-xs text-purple-500 mt-1">Per hari minggu ini</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Insights */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="p-4 bg-white rounded-lg border border-gray-200">
-                  <h4 className="font-medium text-gray-900 mb-3">📈 Progress Insights</h4>
-                  <div className="space-y-2 text-sm">
-                    {weeklyStats.totalWorkouts >= 3 && (
-                      <div className="text-green-600">✅ Konsisten workout minggu ini!</div>
-                    )}
-                    {weeklyStats.totalWorkouts < 3 && (
-                      <div className="text-yellow-600">⚠️ Coba tambah frekuensi workout</div>
-                    )}
-                    {Math.abs(weeklyStats.weightChange) < 0.5 && (
-                      <div className="text-blue-600">📊 Berat badan stabil</div>
-                    )}
-                    {weeklyStats.caloriesBurned > 1000 && (
-                      <div className="text-orange-600">🔥 Pembakaran kalori excellent!</div>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="p-4 bg-white rounded-lg border border-gray-200">
-                  <h4 className="font-medium text-gray-900 mb-3">💡 Rekomendasi</h4>
-                  <div className="space-y-2 text-sm text-gray-600">
-                    {weeklyStats.totalWorkouts < 3 && (
-                      <div>• Target minimal 3x workout per minggu</div>
-                    )}
-                    {weeklyStats.avgDailyCalories < 1200 && (
-                      <div>• Pastikan asupan kalori cukup untuk metabolisme</div>
-                    )}
-                    {weeklyStats.caloriesBurned < 500 && (
-                      <div>• Tingkatkan intensitas atau durasi workout</div>
-                    )}
-                    <div>• Konsistensi lebih penting dari intensitas</div>
-                    <div>• Jangan lupa istirahat yang cukup</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+            );
+          })}
         </div>
       </div>
 
-      {/* Modal */}
-      {showModal && (
+      {/* Profile Tab */}
+      {activeTab === 'profile' && userProfile && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Basic Info */}
+          <div className="card animate-fadeIn">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Informasi Dasar</h3>
+              <button
+                onClick={() => {
+                  setProfileForm({
+                    age: userProfile.age,
+                    gender: userProfile.gender,
+                    height: userProfile.height,
+                    weight: userProfile.weight,
+                    activity_level: userProfile.activity_level,
+                    goal_mode: userProfile.goal_mode,
+                    target_weight: userProfile.target_weight || userProfile.weight,
+                    body_fat_percentage: userProfile.body_fat_percentage || 15
+                  });
+                  setShowEditProfile(true);
+                }}
+                className="flex items-center space-x-1 px-2 py-1 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-all duration-200"
+                title="Edit Profil"
+              >
+                <Edit2 className="w-3 h-3" />
+                <span>Edit</span>
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Umur:</span>
+                <span className="font-medium">{userProfile.age} tahun</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Gender:</span>
+                <span className="font-medium">{userProfile.gender === 'male' ? 'Pria' : 'Wanita'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Tinggi:</span>
+                <span className="font-medium">{userProfile.height} cm</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Berat:</span>
+                <span className="font-medium">{userProfile.weight} kg</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Aktivitas:</span>
+                <span className="font-medium text-sm">{getActivityLevelLabel(userProfile.activity_level)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Metabolism Calculations */}
+          <div className="card animate-fadeIn">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Perhitungan Metabolisme</h3>
+            
+            <div className="space-y-4">
+              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h4 className="font-medium text-blue-900">BMR (Basal Metabolic Rate)</h4>
+                    <p className="text-xs text-blue-700">Kalori yang dibutuhkan tubuh saat istirahat</p>
+                  </div>
+                  <span className="text-xl font-bold text-blue-600">{Math.round(calculateBMR(userProfile))}</span>
+                </div>
+              </div>
+
+              <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h4 className="font-medium text-green-900">TDEE (Total Daily Energy)</h4>
+                    <p className="text-xs text-green-700">Total kalori yang dibutuhkan per hari</p>
+                  </div>
+                  <span className="text-xl font-bold text-green-600">{Math.round(calculateTDEE(userProfile))}</span>
+                </div>
+              </div>
+
+              <div className="text-xs text-gray-600 space-y-1">
+                <p><strong>Penjelasan:</strong></p>
+                <p>• BMR dihitung menggunakan rumus Mifflin-St Jeor</p>
+                <p>• TDEE = BMR × faktor aktivitas harian</p>
+                <p>• Digunakan sebagai dasar perhitungan target kalori</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Target Tab */}
+      {activeTab === 'target' && userProfile && (
+        <div className="card animate-fadeIn">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-lg font-semibold text-gray-900">Target Fitness</h3>
+            <button
+              onClick={() => {
+                setProfileForm({
+                  age: userProfile.age,
+                  gender: userProfile.gender,
+                  height: userProfile.height,
+                  weight: userProfile.weight,
+                  activity_level: userProfile.activity_level,
+                  goal_mode: userProfile.goal_mode,
+                  target_weight: userProfile.target_weight || userProfile.weight,
+                  body_fat_percentage: userProfile.body_fat_percentage || 15
+                });
+                setShowEditProfile(true);
+              }}
+              className="flex items-center space-x-1 px-2 py-1 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-all duration-200"
+              title="Edit Target"
+            >
+              <Edit2 className="w-3 h-3" />
+              <span>Edit</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+                <h4 className="font-medium text-purple-900 mb-2">Mode Target</h4>
+                <p className="text-purple-700">{getGoalModeLabel(userProfile.goal_mode)}</p>
+              </div>
+
+              <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
+                <h4 className="font-medium text-orange-900 mb-2">Target Berat Badan</h4>
+                <p className="text-orange-700">{userProfile.target_weight || userProfile.weight} kg</p>
+              </div>
+            </div>
+
+            <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+              <h4 className="font-medium text-green-900 mb-2">Kalori Target Harian</h4>
+              <p className="text-2xl font-bold text-green-600">{Math.round(calculateTargetCalories(userProfile))} kal</p>
+              <p className="text-xs text-green-700 mt-2">
+                Berdasarkan TDEE dan mode target yang dipilih
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Calories Tab */}
+      {activeTab === 'calories' && (
+        <div className="space-y-6">
+          {/* Calorie Summary */}
+          <div className="card animate-fadeIn">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Ringkasan Kalori Hari Ini</h3>
+              <button
+                onClick={() => setShowAddCalorie(true)}
+                className="flex items-center space-x-1 px-2 py-1 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-all duration-200"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Tambah</span>
+              </button>
+            </div>
+
+            {userProfile && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="text-lg font-bold text-blue-600">{Math.round(calculateTargetCalories(userProfile))}</div>
+                  <div className="text-xs text-blue-700">Target</div>
+                </div>
+                <div className="text-center p-3 bg-green-50 rounded-lg border border-green-200">
+                  <div className="text-lg font-bold text-green-600">{getTotalCaloriesConsumed()}</div>
+                  <div className="text-xs text-green-700">Dikonsumsi</div>
+                </div>
+                <div className="text-center p-3 bg-orange-50 rounded-lg border border-orange-200">
+                  <div className="text-lg font-bold text-orange-600">{getTotalCaloriesBurned()}</div>
+                  <div className="text-xs text-orange-700">Terbakar</div>
+                </div>
+                <div className="text-center p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className={`text-lg font-bold ${getCalorieStatus().color}`}>
+                    {Math.round(calculateTargetCalories(userProfile)) - (getTotalCaloriesConsumed() - getTotalCaloriesBurned())}
+                  </div>
+                  <div className="text-xs text-gray-700">Sisa</div>
+                </div>
+              </div>
+            )}
+
+            <div className="text-center p-3 rounded-lg border-2 border-dashed border-gray-200">
+              <p className={`font-medium ${getCalorieStatus().color}`}>
+                {getCalorieStatus().label}
+              </p>
+            </div>
+          </div>
+
+          {/* Calorie Entries */}
+          <div className="card animate-fadeIn">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Makanan Hari Ini</h3>
+            
+            {calorieEntries.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <Utensils className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                <p>Belum ada makanan yang dicatat hari ini</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {calorieEntries.map((entry) => (
+                  <div key={entry.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex-1">
+                      <h4 className="font-medium text-gray-900">{entry.food_name}</h4>
+                      <p className="text-sm text-gray-600">{entry.category} • {entry.calories} kal</p>
+                      {entry.description && (
+                        <p className="text-xs text-gray-500">{entry.description}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={() => openEditCalorie(entry)}
+                        className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-all duration-200"
+                        title="Edit"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteCalorie(entry.id)}
+                        className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-all duration-200"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Workout Tab */}
+      {activeTab === 'workout' && (
+        <div className="space-y-6">
+          {/* Workout Summary */}
+          <div className="card animate-fadeIn">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Latihan Hari Ini</h3>
+              <button
+                onClick={() => setShowAddWorkout(true)}
+                className="flex items-center space-x-1 px-2 py-1 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-all duration-200"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Tambah</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+              <div className="text-center p-3 bg-purple-50 rounded-lg border border-purple-200">
+                <div className="text-lg font-bold text-purple-600">{workoutEntries.length}</div>
+                <div className="text-xs text-purple-700">Latihan</div>
+              </div>
+              <div className="text-center p-3 bg-orange-50 rounded-lg border border-orange-200">
+                <div className="text-lg font-bold text-orange-600">{getTotalCaloriesBurned()}</div>
+                <div className="text-xs text-orange-700">Kalori Terbakar</div>
+              </div>
+              <div className="text-center p-3 bg-green-50 rounded-lg border border-green-200">
+                <div className="text-lg font-bold text-green-600">
+                  {workoutEntries.reduce((total, entry) => total + (entry.duration_minutes || 0), 0)}
+                </div>
+                <div className="text-xs text-green-700">Menit</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Workout Entries */}
+          <div className="card animate-fadeIn">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Daftar Latihan</h3>
+            
+            {workoutEntries.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <Activity className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                <p>Belum ada latihan yang dicatat hari ini</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {workoutEntries.map((entry) => (
+                  <div key={entry.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex-1">
+                      <h4 className="font-medium text-gray-900">{entry.exercise_name}</h4>
+                      <p className="text-sm text-gray-600">
+                        {entry.duration_minutes ? `${entry.duration_minutes} menit` : `${entry.repetitions} repetisi`} • {entry.calories_burned} kal terbakar
+                      </p>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={() => openEditWorkout(entry)}
+                        className="p-2 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-all duration-200"
+                        title="Edit"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteWorkout(entry.id)}
+                        className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-all duration-200"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Progress Tab */}
+      {activeTab === 'progress' && (
+        <div className="space-y-6">
+          {/* Current Progress */}
+          <div className="card animate-fadeIn">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Progress Tubuh</h3>
+              <button
+                onClick={() => setShowAddProgress(true)}
+                className="flex items-center space-x-1 px-2 py-1 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-all duration-200"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Tambah</span>
+              </button>
+            </div>
+
+            {bodyProgress.length > 0 && (
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="text-lg font-bold text-blue-600">{bodyProgress[bodyProgress.length - 1].weight}</div>
+                  <div className="text-xs text-blue-700">Berat Saat Ini (kg)</div>
+                </div>
+                <div className="text-center p-3 bg-green-50 rounded-lg border border-green-200">
+                  <div className="text-lg font-bold text-green-600">
+                    {bodyProgress[bodyProgress.length - 1].body_fat_percentage || 'N/A'}
+                  </div>
+                  <div className="text-xs text-green-700">Body Fat (%)</div>
+                </div>
+                <div className="text-center p-3 bg-purple-50 rounded-lg border border-purple-200">
+                  <div className="text-lg font-bold text-purple-600">{userProfile?.target_weight || 'N/A'}</div>
+                  <div className="text-xs text-purple-700">Target (kg)</div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Progress History */}
+          <div className="card animate-fadeIn">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Riwayat Progress</h3>
+            
+            {bodyProgress.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <TrendingUp className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                <p>Belum ada data progress yang dicatat</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {bodyProgress.map((entry) => (
+                  <div key={entry.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex-1">
+                      <h4 className="font-medium text-gray-900">{format(new Date(entry.date), 'dd MMM yyyy')}</h4>
+                      <p className="text-sm text-gray-600">
+                        Berat: {entry.weight} kg
+                        {entry.body_fat_percentage && ` • Body Fat: ${entry.body_fat_percentage}%`}
+                      </p>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={() => openEditProgress(entry)}
+                        className="p-2 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-all duration-200"
+                        title="Edit"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteProgress(entry.id)}
+                        className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-all duration-200"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Stats Tab */}
+      {activeTab === 'stats' && (
+        <div className="card animate-fadeIn">
+          <h3 className="text-lg font-semibold text-gray-900 mb-6">Statistik Mingguan</h3>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="text-center p-4 bg-purple-50 rounded-lg border border-purple-200">
+              <div className="text-2xl font-bold text-purple-600">{workoutEntries.length}</div>
+              <div className="text-sm text-purple-700">Total Workout Selesai</div>
+              <div className="text-xs text-purple-600 mt-1">Minggu ini</div>
+            </div>
+            
+            <div className="text-center p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="text-2xl font-bold text-blue-600">
+                {bodyProgress.length > 1 
+                  ? `${(bodyProgress[bodyProgress.length - 1].weight - bodyProgress[0].weight).toFixed(1)}`
+                  : '0.0'
+                }
+              </div>
+              <div className="text-sm text-blue-700">Perubahan Berat (kg)</div>
+              <div className="text-xs text-blue-600 mt-1">Minggu ini</div>
+            </div>
+            
+            <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
+              <div className="text-2xl font-bold text-green-600">
+                {userProfile ? Math.round((getTotalCaloriesConsumed() - getTotalCaloriesBurned() - calculateTargetCalories(userProfile)) * 7) : 0}
+              </div>
+              <div className="text-sm text-green-700">Status Kalori Mingguan</div>
+              <div className="text-xs text-green-600 mt-1">
+                {userProfile && (getTotalCaloriesConsumed() - getTotalCaloriesBurned() - calculateTargetCalories(userProfile)) > 0 ? 'Surplus' : 'Defisit'}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Profile Modal */}
+      {showEditProfile && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {editingItem ? 'Edit' : 'Tambah'} {
-                    modalType === 'profile' ? 'Profil' :
-                    modalType === 'goal' ? 'Target' :
-                    modalType === 'calorie' ? 'Kalori' :
-                    modalType === 'workout' ? 'Workout' :
-                    modalType === 'progress' ? 'Progress' : ''
-                  }
-                </h3>
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-semibold text-gray-900">Edit Profil</h3>
                 <button
-                  onClick={closeModal}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
+                  onClick={() => setShowEditProfile(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg transition-all duration-200"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              {/* Profile Form */}
-              {modalType === 'profile' && (
-                <form onSubmit={(e) => { e.preventDefault(); handleSaveProfile(); }} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Umur</label>
-                      <input
-                        type="number"
-                        value={profileForm.age}
-                        onChange={(e) => setProfileForm({...profileForm, age: parseInt(e.target.value) || 0})}
-                        className="input"
-                        min="10"
-                        max="100"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
-                      <select
-                        value={profileForm.gender}
-                        onChange={(e) => setProfileForm({...profileForm, gender: e.target.value as 'male' | 'female'})}
-                        className="input"
-                        required
-                      >
-                        <option value="male">Pria</option>
-                        <option value="female">Wanita</option>
-                      </select>
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Tinggi (cm)</label>
-                      <input
-                        type="number"
-                        value={profileForm.height}
-                        onChange={(e) => setProfileForm({...profileForm, height: parseInt(e.target.value) || 0})}
-                        className="input"
-                        min="100"
-                        max="250"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Berat (kg)</label>
-                      <input
-                        type="number"
-                        value={profileForm.weight}
-                        onChange={(e) => setProfileForm({...profileForm, weight: parseInt(e.target.value) || 0})}
-                        className="input"
-                        min="30"
-                        max="200"
-                        required
-                      />
-                    </div>
-                  </div>
-                  
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Tingkat Aktivitas</label>
-                    <select
-                      value={profileForm.activityLevel}
-                      onChange={(e) => setProfileForm({...profileForm, activityLevel: e.target.value as UserProfile['activityLevel']})}
-                      className="input"
-                      required
-                    >
-                      <option value="sedentary">Sedentary (Jarang aktivitas)</option>
-                      <option value="light">Light (1-3x latihan per minggu)</option>
-                      <option value="moderate">Moderate (3-5x latihan per minggu)</option>
-                      <option value="active">Active (6-7x latihan per minggu)</option>
-                      <option value="very_active">Very Active (Latihan berat setiap hari)</option>
-                    </select>
-                  </div>
-                  
-                  <div className="flex space-x-3 pt-4">
-                    <button type="button" onClick={closeModal} className="flex-1 btn-secondary">
-                      Batal
-                    </button>
-                    <button type="submit" className="flex-1 btn-primary">
-                      <Save className="w-4 h-4 mr-2" />
-                      Simpan
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* Goal Form */}
-              {modalType === 'goal' && (
-                <form onSubmit={(e) => { e.preventDefault(); handleSaveGoal(); }} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Mode Target</label>
-                    <select
-                      value={goalForm.mode}
-                      onChange={(e) => setGoalForm({...goalForm, mode: e.target.value as FitnessGoal['mode']})}
-                      className="input"
-                      required
-                    >
-                      <option value="cutting">Cutting (Menurunkan berat badan)</option>
-                      <option value="bulking">Bulking (Menaikkan berat badan)</option>
-                      <option value="maintenance">Maintenance (Mempertahankan berat badan)</option>
-                    </select>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Target Berat (kg)</label>
-                      <input
-                        type="number"
-                        value={goalForm.targetWeight}
-                        onChange={(e) => setGoalForm({...goalForm, targetWeight: parseFloat(e.target.value) || 0})}
-                        className="input"
-                        min="30"
-                        max="200"
-                        step="0.1"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Berat Saat Ini (kg)</label>
-                      <input
-                        type="number"
-                        value={goalForm.currentWeight}
-                        onChange={(e) => setGoalForm({...goalForm, currentWeight: parseFloat(e.target.value) || 0})}
-                        className="input"
-                        min="30"
-                        max="200"
-                        step="0.1"
-                        required
-                      />
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Target Date</label>
-                    <input
-                      type="date"
-                      value={goalForm.targetDate}
-                      onChange={(e) => setGoalForm({...goalForm, targetDate: e.target.value})}
-                      className="input"
-                      min={format(new Date(), 'yyyy-MM-dd')}
-                      required
-                    />
-                  </div>
-                  
-                  <div className="flex space-x-3 pt-4">
-                    <button type="button" onClick={closeModal} className="flex-1 btn-secondary">
-                      Batal
-                    </button>
-                    <button type="submit" className="flex-1 btn-primary">
-                      <Save className="w-4 h-4 mr-2" />
-                      Simpan
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* Calorie Form */}
-              {modalType === 'calorie' && (
-                <form onSubmit={(e) => { e.preventDefault(); handleSaveCalorie(); }} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
-                    <select
-                      value={calorieForm.category}
-                      onChange={(e) => setCalorieForm({...calorieForm, category: e.target.value as CalorieEntry['category']})}
-                      className="input"
-                      required
-                    >
-                      <option value="breakfast">Sarapan</option>
-                      <option value="lunch">Makan Siang</option>
-                      <option value="dinner">Makan Malam</option>
-                      <option value="snack">Cemilan</option>
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Nama Makanan</label>
-                    <input
-                      type="text"
-                      value={calorieForm.food}
-                      onChange={(e) => setCalorieForm({...calorieForm, food: e.target.value})}
-                      className="input"
-                      placeholder="Contoh: Nasi gudeg"
-                      required
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Kalori</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Umur</label>
                     <input
                       type="number"
-                      value={calorieForm.calories}
-                      onChange={(e) => setCalorieForm({...calorieForm, calories: parseInt(e.target.value) || 0})}
+                      value={profileForm.age}
+                      onChange={(e) => setProfileForm({ ...profileForm, age: parseInt(e.target.value) || 0 })}
                       className="input"
                       min="1"
-                      max="2000"
-                      required
+                      max="100"
                     />
                   </div>
-                  
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi (Opsional)</label>
-                    <textarea
-                      value={calorieForm.description}
-                      onChange={(e) => setCalorieForm({...calorieForm, description: e.target.value})}
-                      className="textarea"
-                      rows={2}
-                      placeholder="Contoh: 1 porsi sedang"
-                    />
-                  </div>
-                  
-                  <div className="flex space-x-3 pt-4">
-                    <button type="button" onClick={closeModal} className="flex-1 btn-secondary">
-                      Batal
-                    </button>
-                    <button type="submit" className="flex-1 btn-primary">
-                      <Save className="w-4 h-4 mr-2" />
-                      Simpan
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* Workout Form */}
-              {modalType === 'workout' && (
-                <form onSubmit={(e) => { e.preventDefault(); handleSaveWorkout(); }} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Jenis Olahraga</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Gender</label>
                     <select
-                      value={workoutForm.exercise}
-                      onChange={(e) => setWorkoutForm({...workoutForm, exercise: e.target.value})}
+                      value={profileForm.gender}
+                      onChange={(e) => setProfileForm({ ...profileForm, gender: e.target.value as 'male' | 'female' })}
                       className="input"
-                      required
                     >
-                      <option value="">Pilih olahraga</option>
-                      <option value="running">Running</option>
-                      <option value="weightlifting">Weightlifting</option>
-                      <option value="swimming">Swimming</option>
-                      <option value="cycling">Cycling</option>
-                      <option value="walking">Walking</option>
-                      <option value="yoga">Yoga</option>
-                      <option value="basketball">Basketball</option>
-                      <option value="soccer">Soccer</option>
-                      <option value="tennis">Tennis</option>
-                      <option value="dancing">Dancing</option>
+                      <option value="male">Pria</option>
+                      <option value="female">Wanita</option>
                     </select>
                   </div>
-                  
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Durasi (menit)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Tinggi (cm)</label>
                     <input
                       type="number"
-                      value={workoutForm.duration}
-                      onChange={(e) => setWorkoutForm({...workoutForm, duration: parseInt(e.target.value) || 0})}
+                      value={profileForm.height}
+                      onChange={(e) => setProfileForm({ ...profileForm, height: parseInt(e.target.value) || 0 })}
                       className="input"
-                      min="1"
-                      max="300"
-                      required
+                      min="100"
+                      max="250"
                     />
                   </div>
-                  
-                  {workoutForm.exercise === 'weightlifting' && (
-                    <div className="grid grid-cols-3 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Sets</label>
-                        <input
-                          type="number"
-                          value={workoutForm.sets}
-                          onChange={(e) => setWorkoutForm({...workoutForm, sets: parseInt(e.target.value) || 0})}
-                          className="input"
-                          min="1"
-                          max="20"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Reps</label>
-                        <input
-                          type="number"
-                          value={workoutForm.reps}
-                          onChange={(e) => setWorkoutForm({...workoutForm, reps: parseInt(e.target.value) || 0})}
-                          className="input"
-                          min="1"
-                          max="50"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Weight (kg)</label>
-                        <input
-                          type="number"
-                          value={workoutForm.weight}
-                          onChange={(e) => setWorkoutForm({...workoutForm, weight: parseInt(e.target.value) || 0})}
-                          className="input"
-                          min="0"
-                          max="300"
-                        />
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div className="flex space-x-3 pt-4">
-                    <button type="button" onClick={closeModal} className="flex-1 btn-secondary">
-                      Batal
-                    </button>
-                    <button type="submit" className="flex-1 btn-primary">
-                      <Save className="w-4 h-4 mr-2" />
-                      Simpan
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* Progress Form */}
-              {modalType === 'progress' && (
-                <form onSubmit={(e) => { e.preventDefault(); handleSaveProgress(); }} className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Berat Badan (kg)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Berat (kg)</label>
                     <input
                       type="number"
-                      value={progressForm.weight}
-                      onChange={(e) => setProgressForm({...progressForm, weight: parseFloat(e.target.value) || 0})}
+                      value={profileForm.weight}
+                      onChange={(e) => setProfileForm({ ...profileForm, weight: parseInt(e.target.value) || 0 })}
                       className="input"
                       min="30"
                       max="200"
-                      step="0.1"
-                      required
                     />
                   </div>
-                  
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Tingkat Aktivitas</label>
+                  <select
+                    value={profileForm.activity_level}
+                    onChange={(e) => setProfileForm({ ...profileForm, activity_level: e.target.value as UserProfile['activity_level'] })}
+                    className="input"
+                  >
+                    <option value="sedentary">Sedentary (jarang aktivitas)</option>
+                    <option value="light">Light (1-3x latihan per minggu)</option>
+                    <option value="moderate">Moderate (3-5x latihan per minggu)</option>
+                    <option value="active">Active (6-7x latihan per minggu)</option>
+                    <option value="very_active">Very Active (latihan berat setiap hari)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Mode Target</label>
+                  <select
+                    value={profileForm.goal_mode}
+                    onChange={(e) => setProfileForm({ ...profileForm, goal_mode: e.target.value as UserProfile['goal_mode'] })}
+                    className="input"
+                  >
+                    <option value="cutting">Cutting (menurunkan berat badan)</option>
+                    <option value="bulking">Bulking (menaikkan berat badan)</option>
+                    <option value="maintenance">Maintenance (mempertahankan berat badan)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Target Berat (kg)</label>
+                  <input
+                    type="number"
+                    value={profileForm.target_weight}
+                    onChange={(e) => setProfileForm({ ...profileForm, target_weight: parseInt(e.target.value) || 0 })}
+                    className="input"
+                    min="30"
+                    max="200"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Body Fat Percentage (%)</label>
+                  <input
+                    type="number"
+                    value={profileForm.body_fat_percentage}
+                    onChange={(e) => setProfileForm({ ...profileForm, body_fat_percentage: parseInt(e.target.value) || 0 })}
+                    className="input"
+                    min="5"
+                    max="50"
+                  />
+                </div>
+              </div>
+
+              <div className="flex space-x-3 mt-6">
+                <button
+                  onClick={handleSaveProfile}
+                  className="flex-1 btn-primary"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Simpan
+                </button>
+                <button
+                  onClick={() => setShowEditProfile(false)}
+                  className="btn-secondary"
+                >
+                  Batal
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Calorie Modal */}
+      {showAddCalorie && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {editingCalorie ? 'Edit Makanan' : 'Tambah Makanan'}
+                </h3>
+                <button
+                  onClick={() => {
+                    setShowAddCalorie(false);
+                    setEditingCalorie(null);
+                    setCalorieForm({ food_name: '', category: 'breakfast', calories: 0, description: '' });
+                  }}
+                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg transition-all duration-200"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Nama Makanan</label>
+                  <input
+                    type="text"
+                    value={calorieForm.food_name}
+                    onChange={(e) => setCalorieForm({ ...calorieForm, food_name: e.target.value })}
+                    className="input"
+                    placeholder="Contoh: Nasi Gudeg"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Kategori</label>
+                  <select
+                    value={calorieForm.category}
+                    onChange={(e) => setCalorieForm({ ...calorieForm, category: e.target.value })}
+                    className="input"
+                  >
+                    <option value="breakfast">Sarapan</option>
+                    <option value="lunch">Makan Siang</option>
+                    <option value="dinner">Makan Malam</option>
+                    <option value="snack">Camilan</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Kalori</label>
+                  <input
+                    type="number"
+                    value={calorieForm.calories}
+                    onChange={(e) => setCalorieForm({ ...calorieForm, calories: parseInt(e.target.value) || 0 })}
+                    className="input"
+                    min="0"
+                    placeholder="Contoh: 450"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Deskripsi (Opsional)</label>
+                  <textarea
+                    value={calorieForm.description}
+                    onChange={(e) => setCalorieForm({ ...calorieForm, description: e.target.value })}
+                    className="textarea"
+                    rows={3}
+                    placeholder="Contoh: Dengan ayam dan telur"
+                  />
+                </div>
+              </div>
+
+              <div className="flex space-x-3 mt-6">
+                <button
+                  onClick={editingCalorie ? handleEditCalorie : handleAddCalorie}
+                  className="flex-1 btn-primary"
+                  disabled={!calorieForm.food_name || !calorieForm.calories}
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  {editingCalorie ? 'Update' : 'Simpan'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAddCalorie(false);
+                    setEditingCalorie(null);
+                    setCalorieForm({ food_name: '', category: 'breakfast', calories: 0, description: '' });
+                  }}
+                  className="btn-secondary"
+                >
+                  Batal
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Workout Modal */}
+      {showAddWorkout && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {editingWorkout ? 'Edit Latihan' : 'Tambah Latihan'}
+                </h3>
+                <button
+                  onClick={() => {
+                    setShowAddWorkout(false);
+                    setEditingWorkout(null);
+                    setWorkoutForm({ exercise_name: '', duration_minutes: 30, repetitions: 0, calories_burned: 0 });
+                  }}
+                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg transition-all duration-200"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Nama Latihan</label>
+                  <input
+                    type="text"
+                    value={workoutForm.exercise_name}
+                    onChange={(e) => setWorkoutForm({ ...workoutForm, exercise_name: e.target.value })}
+                    className="input"
+                    placeholder="Contoh: Push Up"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Body Fat (%) - Opsional</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Durasi (menit)</label>
                     <input
                       type="number"
-                      value={progressForm.bodyFat}
-                      onChange={(e) => setProgressForm({...progressForm, bodyFat: parseFloat(e.target.value) || 0})}
+                      value={workoutForm.duration_minutes}
+                      onChange={(e) => setWorkoutForm({ ...workoutForm, duration_minutes: parseInt(e.target.value) || 0 })}
                       className="input"
-                      min="5"
-                      max="50"
-                      step="0.1"
+                      min="0"
+                      placeholder="30"
                     />
                   </div>
-                  
-                  <div className="flex space-x-3 pt-4">
-                    <button type="button" onClick={closeModal} className="flex-1 btn-secondary">
-                      Batal
-                    </button>
-                    <button type="submit" className="flex-1 btn-primary">
-                      <Save className="w-4 h-4 mr-2" />
-                      Simpan
-                    </button>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Repetisi</label>
+                    <input
+                      type="number"
+                      value={workoutForm.repetitions}
+                      onChange={(e) => setWorkoutForm({ ...workoutForm, repetitions: parseInt(e.target.value) || 0 })}
+                      className="input"
+                      min="0"
+                      placeholder="20"
+                    />
                   </div>
-                </form>
-              )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Kalori Terbakar</label>
+                  <input
+                    type="number"
+                    value={workoutForm.calories_burned}
+                    onChange={(e) => setWorkoutForm({ ...workoutForm, calories_burned: parseInt(e.target.value) || 0 })}
+                    className="input"
+                    min="0"
+                    placeholder="50"
+                  />
+                </div>
+              </div>
+
+              <div className="flex space-x-3 mt-6">
+                <button
+                  onClick={editingWorkout ? handleEditWorkout : handleAddWorkout}
+                  className="flex-1 btn-primary"
+                  disabled={!workoutForm.exercise_name || !workoutForm.calories_burned}
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  {editingWorkout ? 'Update' : 'Simpan'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAddWorkout(false);
+                    setEditingWorkout(null);
+                    setWorkoutForm({ exercise_name: '', duration_minutes: 30, repetitions: 0, calories_burned: 0 });
+                  }}
+                  className="btn-secondary"
+                >
+                  Batal
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Progress Modal */}
+      {showAddProgress && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {editingProgress ? 'Edit Progress' : 'Tambah Progress'}
+                </h3>
+                <button
+                  onClick={() => {
+                    setShowAddProgress(false);
+                    setEditingProgress(null);
+                    setProgressForm({ weight: 70, body_fat_percentage: 15 });
+                  }}
+                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg transition-all duration-200"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Berat Badan (kg)</label>
+                  <input
+                    type="number"
+                    value={progressForm.weight}
+                    onChange={(e) => setProgressForm({ ...progressForm, weight: parseFloat(e.target.value) || 0 })}
+                    className="input"
+                    min="30"
+                    max="200"
+                    step="0.1"
+                    placeholder="70.5"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Body Fat Percentage (%) - Opsional</label>
+                  <input
+                    type="number"
+                    value={progressForm.body_fat_percentage}
+                    onChange={(e) => setProgressForm({ ...progressForm, body_fat_percentage: parseFloat(e.target.value) || 0 })}
+                    className="input"
+                    min="5"
+                    max="50"
+                    step="0.1"
+                    placeholder="15.5"
+                  />
+                </div>
+              </div>
+
+              <div className="flex space-x-3 mt-6">
+                <button
+                  onClick={editingProgress ? handleEditProgress : handleAddProgress}
+                  className="flex-1 btn-primary"
+                  disabled={!progressForm.weight}
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  {editingProgress ? 'Update' : 'Simpan'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAddProgress(false);
+                    setEditingProgress(null);
+                    setProgressForm({ weight: 70, body_fat_percentage: 15 });
+                  }}
+                  className="btn-secondary"
+                >
+                  Batal
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -54,7 +54,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             {/* Analytics */}
             <button
               onClick={onAnalyticsClick}
-              className={`btn-icon transition-all duration-200 ${
+              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-200 hover-scale ${
                 isAnalyticsActive 
                   ? 'bg-blue-50 text-blue-700 hover-glow' 
                   : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
@@ -67,7 +67,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             {/* Profile */}
             <button
               onClick={onUserClick}
-              className={`btn-icon transition-all duration-200 ${
+              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-200 hover-scale ${
                 isProfileActive 
                   ? 'bg-blue-50 text-blue-700 hover-glow' 
                   : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
@@ -84,7 +84,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             {/* Sign Out */}
             <button
               onClick={handleSignOut}
-              className="flex items-center space-x-1.5 px-2.5 py-1.5 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all duration-200 hover-lift"
+              className="flex items-center space-x-1.5 px-2 py-1.5 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all duration-200 hover-lift"
             >
               <LogOut className="w-3 h-3" />
               <span className="hidden sm:block">Sign out</span>
