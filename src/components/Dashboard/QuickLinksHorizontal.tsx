@@ -13,14 +13,28 @@ interface QuickLink {
   open_in_app?: boolean;
 }
 
-const QuickLinksHorizontal: React.FC = () => {
-  const [links, setLinks] = useState<QuickLink[]>([]);
-  const [loading, setLoading] = useState(true);
+interface QuickLinksHorizontalProps {
+  globalData?: QuickLink[];
+}
+
+const QuickLinksHorizontal: React.FC<QuickLinksHorizontalProps> = ({ globalData = [] }) => {
+  const [links, setLinks] = useState<QuickLink[]>(globalData);
+  const [loading, setLoading] = useState(!globalData.length);
   const [error, setError] = useState<string | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
+
+  // Use global data when available, otherwise fetch from database
+  useEffect(() => {
+    if (globalData.length > 0) {
+      setLinks(globalData);
+      setLoading(false);
+    } else if (user?.id) {
+      fetchLinks();
+    }
+  }, [globalData, user?.id]);
 
   // Memoize fetch function to prevent unnecessary re-renders
   const fetchLinks = useCallback(async () => {
@@ -61,11 +75,6 @@ const QuickLinksHorizontal: React.FC = () => {
       setLoading(false);
     }
   }, [user?.id]);
-
-  // Use effect with dependency array to prevent unnecessary calls
-  useEffect(() => {
-    fetchLinks();
-  }, [fetchLinks]);
 
   // Memoize scroll check function
   const checkScrollability = useCallback(() => {

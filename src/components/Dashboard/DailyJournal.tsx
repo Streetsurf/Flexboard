@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BookOpen, Save, Edit2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
+import { triggerDataUpdate } from '../../hooks/useGlobalState';
 import { format } from 'date-fns';
 
 interface JournalEntry {
@@ -13,9 +14,10 @@ interface JournalEntry {
 
 interface DailyJournalProps {
   readOnly?: boolean;
+  globalData?: JournalEntry[];
 }
 
-const DailyJournal: React.FC<DailyJournalProps> = ({ readOnly = false }) => {
+const DailyJournal: React.FC<DailyJournalProps> = ({ readOnly = false, globalData = [] }) => {
   const [entry, setEntry] = useState('');
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
@@ -23,10 +25,13 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ readOnly = false }) => {
   const today = format(new Date(), 'yyyy-MM-dd');
 
   useEffect(() => {
-    if (user) {
+    if (globalData.length > 0) {
+      const todayEntry = globalData.find(entry => entry.date === today);
+      setEntry(todayEntry?.content || '');
+    } else if (user) {
       fetchTodayEntry();
     }
-  }, [user]);
+  }, [globalData, today, user]);
 
   const fetchTodayEntry = async () => {
     try {
@@ -63,6 +68,9 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ readOnly = false }) => {
 
       if (error) throw error;
       setLastSaved(new Date());
+      
+      // Trigger global state update
+      triggerDataUpdate('journal');
     } catch (error) {
       console.error('Error saving journal entry:', error);
     } finally {

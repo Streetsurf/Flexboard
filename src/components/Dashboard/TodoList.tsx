@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Check, X, Clock, Calendar, ChevronLeft, ChevronRight, Play, Pause, Square, BarChart3, Edit2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
+import { triggerDataUpdate } from '../../hooks/useGlobalState';
 import { format, addDays, subDays, startOfWeek, endOfWeek, isSameDay, isToday, startOfMonth, endOfMonth } from 'date-fns';
 
 interface Todo {
@@ -32,12 +33,13 @@ interface PriorityForm {
 
 interface TodoListProps {
   readOnly?: boolean;
+  globalData?: Todo[];
 }
 
-const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
-  const [todos, setTodos] = useState<Todo[]>([]);
+const TodoList: React.FC<TodoListProps> = ({ readOnly = false, globalData = [] }) => {
+  const [todos, setTodos] = useState<Todo[]>(globalData);
   const [newTodo, setNewTodo] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!globalData.length);
   const [saving, setSaving] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showCalendar, setShowCalendar] = useState(false);
@@ -57,6 +59,17 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
 
   // Memoize date string to prevent unnecessary re-renders
   const dateStr = useMemo(() => format(selectedDate, 'yyyy-MM-dd'), [selectedDate]);
+
+  // Use global data when available, otherwise fetch from database
+  useEffect(() => {
+    if (globalData.length > 0) {
+      const filteredTodos = globalData.filter(todo => todo.date === dateStr);
+      setTodos(filteredTodos);
+      setLoading(false);
+    } else if (user?.id) {
+      fetchTodos();
+    }
+  }, [globalData, dateStr, user?.id]);
 
   const fetchTodos = useCallback(async () => {
     if (!user?.id) return;
@@ -79,6 +92,9 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
 
       if (error) throw error;
       setTodos(data || []);
+      
+      // Trigger global state update
+      triggerDataUpdate('todos');
     } catch (error) {
       console.error('Error fetching todos:', error);
     } finally {
@@ -112,13 +128,10 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
   }, [user?.id, readOnly]);
 
   useEffect(() => {
-    if (user) {
-      fetchTodos();
-      if (!readOnly) {
-        checkActiveTimer();
-      }
+    if (user && !readOnly && !globalData.length) {
+      checkActiveTimer();
     }
-  }, [fetchTodos, checkActiveTimer]);
+  }, [checkActiveTimer, user, readOnly, globalData.length]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -181,6 +194,9 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
         impact: 5,
         duration_minutes: 30
       });
+      
+      // Trigger global state update
+      triggerDataUpdate('todos');
     } catch (error) {
       console.error('Error adding todo:', error);
     } finally {
@@ -224,6 +240,9 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
         impact: 5,
         duration_minutes: 30
       });
+      
+      // Trigger global state update
+      triggerDataUpdate('todos');
     } catch (error) {
       console.error('Error updating todo:', error);
     } finally {
@@ -244,6 +263,9 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
       setTodos(prev => prev.map(todo => 
         todo.id === id ? { ...todo, completed: !completed } : todo
       ));
+      
+      // Trigger global state update
+      triggerDataUpdate('todos');
     } catch (error) {
       console.error('Error updating todo:', error);
     }
@@ -258,6 +280,9 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
 
       if (error) throw error;
       setTodos(prev => prev.filter(todo => todo.id !== id));
+      
+      // Trigger global state update
+      triggerDataUpdate('todos');
     } catch (error) {
       console.error('Error deleting todo:', error);
     }
@@ -283,11 +308,13 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
       
       setActiveTimer(todoId);
       setTimerSeconds(0);
-      fetchTodos();
+      
+      // Trigger global state update
+      triggerDataUpdate('todos');
     } catch (error) {
       console.error('Error starting timer:', error);
     }
-  }, [activeTimer, fetchTodos, readOnly]);
+  }, [activeTimer, readOnly]);
 
   const pauseTimer = useCallback(async (todoId: string) => {
     if (readOnly) return;
@@ -313,11 +340,13 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
       
       setActiveTimer(null);
       setTimerSeconds(0);
-      fetchTodos();
+      
+      // Trigger global state update
+      triggerDataUpdate('todos');
     } catch (error) {
       console.error('Error pausing timer:', error);
     }
-  }, [todos, timerSeconds, fetchTodos, readOnly]);
+  }, [todos, timerSeconds, readOnly]);
 
   const finishTask = useCallback(async (todoId: string) => {
     if (readOnly) return;
@@ -350,11 +379,12 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
         setTimerSeconds(0);
       }
       
-      fetchTodos();
+      // Trigger global state update
+      triggerDataUpdate('todos');
     } catch (error) {
       console.error('Error finishing task:', error);
     }
-  }, [todos, activeTimer, timerSeconds, fetchTodos, readOnly]);
+  }, [todos, activeTimer, timerSeconds, readOnly]);
 
   const formatTime = useCallback((seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
