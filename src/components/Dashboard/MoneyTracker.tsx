@@ -293,3 +293,5 @@ const MoneyTracker: React.FC = () => {
 };
 
 export default MoneyTracker;
+
+export { MoneyIncome, MoneyOutcome }
