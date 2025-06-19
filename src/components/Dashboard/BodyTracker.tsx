@@ -18,7 +18,10 @@ import {
   Image,
   Camera,
   User,
-  Edit2
+  Edit2,
+  Utensils,
+  Moon,
+  BarChart3
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
@@ -102,6 +105,19 @@ const BodyTracker: React.FC<BodyTrackerProps> = ({ globalData }) => {
     avatar_url: '',
     full_name: ''
   });
+
+  // New states for other tabs
+  const [calorieEntries, setCalorieEntries] = useState<CalorieEntry[]>(globalData?.calorieEntries || []);
+  const [workoutEntries, setWorkoutEntries] = useState<WorkoutEntry[]>(globalData?.workoutEntries || []);
+  const [weightEntries, setWeightEntries] = useState<WeightEntry[]>(globalData?.weightEntries || []);
+  const [sleepEntries, setSleepEntries] = useState<SleepEntry[]>(globalData?.sleepEntries || []);
+
+  // Form states for adding new entries
+  const [showAddCalorie, setShowAddCalorie] = useState(false);
+  const [showAddWorkout, setShowAddWorkout] = useState(false);
+  const [showAddWeight, setShowAddWeight] = useState(false);
+  const [showAddSleep, setShowAddSleep] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
 
@@ -121,7 +137,13 @@ const BodyTracker: React.FC<BodyTrackerProps> = ({ globalData }) => {
     } else if (user) {
       fetchProfile();
     }
-  }, [globalData?.profile, user]);
+
+    // Update other data
+    if (globalData?.calorieEntries) setCalorieEntries(globalData.calorieEntries);
+    if (globalData?.workoutEntries) setWorkoutEntries(globalData.workoutEntries);
+    if (globalData?.weightEntries) setWeightEntries(globalData.weightEntries);
+    if (globalData?.sleepEntries) setSleepEntries(globalData.sleepEntries);
+  }, [globalData, user]);
 
   const fetchProfile = async () => {
     try {
@@ -287,6 +309,30 @@ const BodyTracker: React.FC<BodyTrackerProps> = ({ globalData }) => {
       case 'extremely_active': return 'Extremely Active (Very hard exercise, physical job)';
       default: return level;
     }
+  };
+
+  const getCategoryIcon = (category: string) => {
+    switch (category) {
+      case 'breakfast': return '🌅';
+      case 'lunch': return '☀️';
+      case 'dinner': return '🌙';
+      case 'snack': return '🍎';
+      default: return '🍽️';
+    }
+  };
+
+  const getCategoryColor = (category: string) => {
+    switch (category) {
+      case 'breakfast': return 'bg-yellow-50 border-yellow-200 text-yellow-800';
+      case 'lunch': return 'bg-orange-50 border-orange-200 text-orange-800';
+      case 'dinner': return 'bg-purple-50 border-purple-200 text-purple-800';
+      case 'snack': return 'bg-green-50 border-green-200 text-green-800';
+      default: return 'bg-gray-50 border-gray-200 text-gray-800';
+    }
+  };
+
+  const formatTime = (timeString: string) => {
+    return timeString.slice(0, 5); // HH:MM format
   };
 
   return (
@@ -701,40 +747,334 @@ const BodyTracker: React.FC<BodyTrackerProps> = ({ globalData }) => {
         </div>
       )}
 
-      {/* Other tabs would go here */}
+      {/* Progress Tab */}
       {activeTab === 'progress' && (
-        <div className="card">
-          <div className="card-header">
-            <h2 className="card-title">Progress Tracking</h2>
+        <div className="space-y-6">
+          <div className="card">
+            <div className="card-header">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
+                  <TrendingUp className="w-4 h-4 text-white" />
+                </div>
+                <h2 className="card-title">Weight Progress</h2>
+              </div>
+              <button
+                onClick={() => setShowAddWeight(true)}
+                className="btn-primary"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add Weight
+              </button>
+            </div>
+
+            {/* Weight Entries */}
+            <div className="space-y-3">
+              {weightEntries.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Scale className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                  <p className="text-sm">No weight entries yet</p>
+                  <p className="text-xs text-gray-400">Start tracking your weight progress</p>
+                </div>
+              ) : (
+                weightEntries.slice(0, 10).map((entry, index) => (
+                  <div key={entry.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <Scale className="w-5 h-5 text-green-500" />
+                        <div>
+                          <div className="font-medium text-gray-900">{entry.weight} kg</div>
+                          <div className="text-sm text-gray-600">{format(new Date(entry.date), 'MMM d, yyyy')}</div>
+                        </div>
+                      </div>
+                      {entry.body_fat && (
+                        <div className="text-right">
+                          <div className="text-sm font-medium text-gray-900">{entry.body_fat}%</div>
+                          <div className="text-xs text-gray-500">Body Fat</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-          <p className="text-gray-600">Progress tracking features coming soon...</p>
         </div>
       )}
 
+      {/* Calories Tab */}
       {activeTab === 'calories' && (
-        <div className="card">
-          <div className="card-header">
-            <h2 className="card-title">Calorie Tracking</h2>
+        <div className="space-y-6">
+          <div className="card">
+            <div className="card-header">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center">
+                  <Flame className="w-4 h-4 text-white" />
+                </div>
+                <h2 className="card-title">Calorie Tracking</h2>
+              </div>
+              <button
+                onClick={() => setShowAddCalorie(true)}
+                className="btn-primary"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add Food
+              </button>
+            </div>
+
+            {/* Daily Summary */}
+            {profile?.target_calories && (
+              <div className="mb-6 p-4 bg-orange-50 rounded-lg border border-orange-200">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-orange-800">Today's Progress</span>
+                  <span className="text-sm text-orange-600">
+                    {calorieEntries
+                      .filter(entry => entry.date === format(new Date(), 'yyyy-MM-dd'))
+                      .reduce((sum, entry) => sum + entry.calories, 0)
+                    } / {profile.target_calories} cal
+                  </span>
+                </div>
+                <div className="progress-bar">
+                  <div 
+                    className="progress-fill bg-orange-500"
+                    style={{ 
+                      width: `${Math.min(
+                        (calorieEntries
+                          .filter(entry => entry.date === format(new Date(), 'yyyy-MM-dd'))
+                          .reduce((sum, entry) => sum + entry.calories, 0) / profile.target_calories) * 100,
+                        100
+                      )}%` 
+                    }}
+                  ></div>
+                </div>
+              </div>
+            )}
+
+            {/* Calorie Entries */}
+            <div className="space-y-3">
+              {calorieEntries.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Utensils className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                  <p className="text-sm">No food entries yet</p>
+                  <p className="text-xs text-gray-400">Start tracking your daily calories</p>
+                </div>
+              ) : (
+                calorieEntries.slice(0, 10).map((entry, index) => (
+                  <div key={entry.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="text-lg">{getCategoryIcon(entry.category)}</div>
+                        <div>
+                          <div className="font-medium text-gray-900">{entry.food_name}</div>
+                          <div className="text-sm text-gray-600">
+                            {format(new Date(entry.date), 'MMM d, yyyy')} • {entry.category}
+                          </div>
+                          {entry.description && (
+                            <div className="text-xs text-gray-500 mt-1">{entry.description}</div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-bold text-orange-600">{entry.calories}</div>
+                        <div className="text-xs text-gray-500">calories</div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-          <p className="text-gray-600">Calorie tracking features coming soon...</p>
         </div>
       )}
 
+      {/* Workouts Tab */}
       {activeTab === 'workouts' && (
-        <div className="card">
-          <div className="card-header">
-            <h2 className="card-title">Workout Tracking</h2>
+        <div className="space-y-6">
+          <div className="card">
+            <div className="card-header">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+                  <Dumbbell className="w-4 h-4 text-white" />
+                </div>
+                <h2 className="card-title">Workout Tracking</h2>
+              </div>
+              <button
+                onClick={() => setShowAddWorkout(true)}
+                className="btn-primary"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add Workout
+              </button>
+            </div>
+
+            {/* Weekly Summary */}
+            {profile?.target_workouts_per_week && (
+              <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-blue-800">This Week's Progress</span>
+                  <span className="text-sm text-blue-600">
+                    {workoutEntries
+                      .filter(entry => {
+                        const entryDate = new Date(entry.date);
+                        const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+                        const weekEnd = endOfWeek(new Date(), { weekStartsOn: 1 });
+                        return entryDate >= weekStart && entryDate <= weekEnd;
+                      }).length
+                    } / {profile.target_workouts_per_week} workouts
+                  </span>
+                </div>
+                <div className="progress-bar">
+                  <div 
+                    className="progress-fill bg-blue-500"
+                    style={{ 
+                      width: `${Math.min(
+                        (workoutEntries
+                          .filter(entry => {
+                            const entryDate = new Date(entry.date);
+                            const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+                            const weekEnd = endOfWeek(new Date(), { weekStartsOn: 1 });
+                            return entryDate >= weekStart && entryDate <= weekEnd;
+                          }).length / profile.target_workouts_per_week) * 100,
+                        100
+                      )}%` 
+                    }}
+                  ></div>
+                </div>
+              </div>
+            )}
+
+            {/* Workout Entries */}
+            <div className="space-y-3">
+              {workoutEntries.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Dumbbell className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                  <p className="text-sm">No workout entries yet</p>
+                  <p className="text-xs text-gray-400">Start tracking your workouts</p>
+                </div>
+              ) : (
+                workoutEntries.slice(0, 10).map((entry, index) => (
+                  <div key={entry.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <Dumbbell className="w-5 h-5 text-blue-500" />
+                        <div>
+                          <div className="font-medium text-gray-900">{entry.exercise_name}</div>
+                          <div className="text-sm text-gray-600">
+                            {format(new Date(entry.date), 'MMM d, yyyy')} • 
+                            {entry.type === 'duration' 
+                              ? ` ${entry.duration_minutes} minutes`
+                              : ` ${entry.repetitions} reps`
+                            }
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-bold text-blue-600">{entry.calories_burned}</div>
+                        <div className="text-xs text-gray-500">calories burned</div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-          <p className="text-gray-600">Workout tracking features coming soon...</p>
         </div>
       )}
 
+      {/* Sleep Tab */}
       {activeTab === 'sleep' && (
-        <div className="card">
-          <div className="card-header">
-            <h2 className="card-title">Sleep Tracking</h2>
+        <div className="space-y-6">
+          <div className="card">
+            <div className="card-header">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center">
+                  <Moon className="w-4 h-4 text-white" />
+                </div>
+                <h2 className="card-title">Sleep Tracking</h2>
+              </div>
+              <button
+                onClick={() => setShowAddSleep(true)}
+                className="btn-primary"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add Sleep
+              </button>
+            </div>
+
+            {/* Sleep Quality Summary */}
+            <div className="mb-6 p-4 bg-purple-50 rounded-lg border border-purple-200">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-purple-800">Average Sleep (Last 7 days)</span>
+                <span className="text-sm text-purple-600">
+                  {sleepEntries.length > 0 
+                    ? `${(sleepEntries
+                        .filter(entry => {
+                          const entryDate = new Date(entry.date);
+                          const weekAgo = subDays(new Date(), 7);
+                          return entryDate >= weekAgo;
+                        })
+                        .reduce((sum, entry) => sum + entry.duration_hours, 0) / 
+                        Math.min(sleepEntries.length, 7)
+                      ).toFixed(1)} hours`
+                    : '0 hours'
+                  }
+                </span>
+              </div>
+              <div className="progress-bar">
+                <div 
+                  className="progress-fill bg-purple-500"
+                  style={{ 
+                    width: `${Math.min(
+                      sleepEntries.length > 0 
+                        ? (sleepEntries
+                            .filter(entry => {
+                              const entryDate = new Date(entry.date);
+                              const weekAgo = subDays(new Date(), 7);
+                              return entryDate >= weekAgo;
+                            })
+                            .reduce((sum, entry) => sum + entry.duration_hours, 0) / 
+                            Math.min(sleepEntries.length, 7)) / 8 * 100
+                        : 0,
+                      100
+                    )}%` 
+                  }}
+                ></div>
+              </div>
+              <div className="text-xs text-purple-600 mt-1">Target: 8 hours</div>
+            </div>
+
+            {/* Sleep Entries */}
+            <div className="space-y-3">
+              {sleepEntries.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Moon className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                  <p className="text-sm">No sleep entries yet</p>
+                  <p className="text-xs text-gray-400">Start tracking your sleep patterns</p>
+                </div>
+              ) : (
+                sleepEntries.slice(0, 10).map((entry, index) => (
+                  <div key={entry.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <Moon className="w-5 h-5 text-purple-500" />
+                        <div>
+                          <div className="font-medium text-gray-900">
+                            {formatTime(entry.sleep_time)} - {formatTime(entry.wake_time)}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            {format(new Date(entry.date), 'MMM d, yyyy')}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-bold text-purple-600">{entry.duration_hours}h</div>
+                        <div className="text-xs text-gray-500">sleep duration</div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-          <p className="text-gray-600">Sleep tracking features coming soon...</p>
         </div>
       )}
     </div>
