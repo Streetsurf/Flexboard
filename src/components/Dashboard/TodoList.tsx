@@ -35,7 +35,7 @@ interface TodoListProps {
 }
 
 const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
-  const [todos, setTodos] = useState<Todo[]>([]);
+  const [allTodos, setAllTodos] = useState<Todo[]>([]); // Cache semua todos
   const [newTodo, setNewTodo] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -58,13 +58,24 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
   // Memoize date string to prevent unnecessary re-renders
   const dateStr = useMemo(() => format(selectedDate, 'yyyy-MM-dd'), [selectedDate]);
 
-  const fetchTodos = useCallback(async () => {
+  // Filter todos untuk tanggal yang dipilih dari cache
+  const todos = useMemo(() => {
+    return allTodos.filter(todo => todo.date === dateStr)
+      .sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0))
+      .slice(0, readOnly ? 5 : 50);
+  }, [allTodos, dateStr, readOnly]);
+
+  // Fetch todos untuk range tanggal yang lebih luas (1 bulan)
+  const fetchTodosRange = useCallback(async () => {
     if (!user?.id) return;
     
     try {
       setLoading(true);
       
-      // Optimized query with minimal data for read-only mode
+      // Ambil data untuk 1 bulan ke depan dan belakang
+      const startDate = format(subDays(selectedDate, 30), 'yyyy-MM-dd');
+      const endDate = format(addDays(selectedDate, 30), 'yyyy-MM-dd');
+      
       const selectFields = readOnly 
         ? 'id, title, completed, priority_score, date'
         : '*';
@@ -73,18 +84,51 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
         .from('todos')
         .select(selectFields)
         .eq('user_id', user.id)
-        .eq('date', dateStr)
-        .order('priority_score', { ascending: false })
-        .limit(readOnly ? 5 : 50);
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('priority_score', { ascending: false });
 
       if (error) throw error;
-      setTodos(data || []);
+      setAllTodos(data || []);
     } catch (error) {
       console.error('Error fetching todos:', error);
     } finally {
       setLoading(false);
     }
-  }, [user?.id, dateStr, readOnly]);
+  }, [user?.id, selectedDate, readOnly]);
+
+  // Fetch todos untuk tanggal spesifik jika belum ada di cache
+  const fetchTodosForDate = useCallback(async (targetDate: string) => {
+    if (!user?.id) return;
+    
+    // Cek apakah data untuk tanggal ini sudah ada di cache
+    const existingTodos = allTodos.filter(todo => todo.date === targetDate);
+    if (existingTodos.length > 0) return; // Sudah ada di cache
+    
+    try {
+      const selectFields = readOnly 
+        ? 'id, title, completed, priority_score, date'
+        : '*';
+      
+      const { data, error } = await supabase
+        .from('todos')
+        .select(selectFields)
+        .eq('user_id', user.id)
+        .eq('date', targetDate)
+        .order('priority_score', { ascending: false })
+        .limit(readOnly ? 5 : 50);
+
+      if (error) throw error;
+      
+      // Tambahkan ke cache tanpa mengganti yang sudah ada
+      setAllTodos(prev => {
+        const filtered = prev.filter(todo => todo.date !== targetDate);
+        return [...filtered, ...(data || [])];
+      });
+    } catch (error) {
+      console.error('Error fetching todos for date:', error);
+    }
+  }, [user?.id, allTodos, readOnly]);
 
   const checkActiveTimer = useCallback(async () => {
     if (!user?.id || readOnly) return;
@@ -111,14 +155,22 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
     }
   }, [user?.id, readOnly]);
 
+  // Initial load
   useEffect(() => {
     if (user) {
-      fetchTodos();
+      fetchTodosRange();
       if (!readOnly) {
         checkActiveTimer();
       }
     }
-  }, [fetchTodos, checkActiveTimer]);
+  }, [user, fetchTodosRange, checkActiveTimer]);
+
+  // Load data untuk tanggal baru saat navigasi
+  useEffect(() => {
+    if (user && dateStr) {
+      fetchTodosForDate(dateStr);
+    }
+  }, [user, dateStr, fetchTodosForDate]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -171,7 +223,9 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
         .single();
 
       if (error) throw error;
-      setTodos(prev => [data, ...prev]);
+      
+      // Update cache
+      setAllTodos(prev => [data, ...prev]);
       setNewTodo('');
       setShowAddModal(false);
       setPriorityForm({
@@ -213,7 +267,8 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
 
       if (error) throw error;
       
-      setTodos(prev => prev.map(todo => todo.id === editingTodo.id ? data : todo));
+      // Update cache
+      setAllTodos(prev => prev.map(todo => todo.id === editingTodo.id ? data : todo));
       setNewTodo('');
       setEditingTodo(null);
       setShowAddModal(false);
@@ -241,7 +296,9 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
         .eq('id', id);
 
       if (error) throw error;
-      setTodos(prev => prev.map(todo => 
+      
+      // Update cache
+      setAllTodos(prev => prev.map(todo => 
         todo.id === id ? { ...todo, completed: !completed } : todo
       ));
     } catch (error) {
@@ -257,7 +314,9 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
         .eq('id', id);
 
       if (error) throw error;
-      setTodos(prev => prev.filter(todo => todo.id !== id));
+      
+      // Update cache
+      setAllTodos(prev => prev.filter(todo => todo.id !== id));
     } catch (error) {
       console.error('Error deleting todo:', error);
     }
@@ -283,17 +342,23 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
       
       setActiveTimer(todoId);
       setTimerSeconds(0);
-      fetchTodos();
+      
+      // Update cache
+      setAllTodos(prev => prev.map(todo => 
+        todo.id === todoId 
+          ? { ...todo, timer_start_time: new Date().toISOString(), is_timer_active: true }
+          : { ...todo, is_timer_active: false }
+      ));
     } catch (error) {
       console.error('Error starting timer:', error);
     }
-  }, [activeTimer, fetchTodos, readOnly]);
+  }, [activeTimer, readOnly]);
 
   const pauseTimer = useCallback(async (todoId: string) => {
     if (readOnly) return;
     
     try {
-      const todo = todos.find(t => t.id === todoId);
+      const todo = allTodos.find(t => t.id === todoId);
       if (!todo) return;
 
       const currentActualMinutes = todo.actual_minutes || 0;
@@ -313,17 +378,23 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
       
       setActiveTimer(null);
       setTimerSeconds(0);
-      fetchTodos();
+      
+      // Update cache
+      setAllTodos(prev => prev.map(todo => 
+        todo.id === todoId 
+          ? { ...todo, actual_minutes: newActualMinutes, is_timer_active: false, timer_start_time: null }
+          : todo
+      ));
     } catch (error) {
       console.error('Error pausing timer:', error);
     }
-  }, [todos, timerSeconds, fetchTodos, readOnly]);
+  }, [allTodos, timerSeconds, readOnly]);
 
   const finishTask = useCallback(async (todoId: string) => {
     if (readOnly) return;
     
     try {
-      const todo = todos.find(t => t.id === todoId);
+      const todo = allTodos.find(t => t.id === todoId);
       if (!todo) return;
 
       let finalActualMinutes = todo.actual_minutes || 0;
@@ -350,11 +421,22 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
         setTimerSeconds(0);
       }
       
-      fetchTodos();
+      // Update cache
+      setAllTodos(prev => prev.map(todo => 
+        todo.id === todoId 
+          ? { 
+              ...todo, 
+              completed: true, 
+              actual_minutes: finalActualMinutes, 
+              is_timer_active: false, 
+              timer_start_time: null 
+            }
+          : todo
+      ));
     } catch (error) {
       console.error('Error finishing task:', error);
     }
-  }, [todos, activeTimer, timerSeconds, fetchTodos, readOnly]);
+  }, [allTodos, activeTimer, timerSeconds, readOnly]);
 
   const formatTime = useCallback((seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -389,17 +471,37 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
     return days;
   }, [selectedDate]);
 
+  // Smooth navigation tanpa loading
   const navigateDate = useCallback((direction: 'prev' | 'next') => {
-    if (direction === 'prev') {
-      setSelectedDate(prev => subDays(prev, 1));
-    } else {
-      setSelectedDate(prev => addDays(prev, 1));
-    }
-  }, []);
+    const newDate = direction === 'prev' 
+      ? subDays(selectedDate, 1)
+      : addDays(selectedDate, 1);
+    
+    setSelectedDate(newDate);
+    
+    // Preload data untuk tanggal baru
+    const newDateStr = format(newDate, 'yyyy-MM-dd');
+    fetchTodosForDate(newDateStr);
+  }, [selectedDate, fetchTodosForDate]);
 
   const goToToday = useCallback(() => {
-    setSelectedDate(new Date());
-  }, []);
+    const today = new Date();
+    setSelectedDate(today);
+    
+    // Preload data untuk hari ini
+    const todayStr = format(today, 'yyyy-MM-dd');
+    fetchTodosForDate(todayStr);
+  }, [fetchTodosForDate]);
+
+  // Smooth calendar navigation
+  const handleDateSelect = useCallback((date: Date) => {
+    setSelectedDate(date);
+    setShowCalendar(false);
+    
+    // Preload data untuk tanggal yang dipilih
+    const dateStr = format(date, 'yyyy-MM-dd');
+    fetchTodosForDate(dateStr);
+  }, [fetchTodosForDate]);
 
   const openEditModal = useCallback((todo: Todo) => {
     setEditingTodo(todo);
@@ -441,13 +543,71 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
     try {
       const monthStart = startOfMonth(new Date());
       const monthEnd = endOfMonth(new Date());
+      const monthStartStr = format(monthStart, 'yyyy-MM-dd');
+      const monthEndStr = format(monthEnd, 'yyyy-MM-dd');
 
+      // Gunakan cache jika tersedia
+      const cachedTodos = allTodos.filter(todo => 
+        todo.date >= monthStartStr && 
+        todo.date <= monthEndStr && 
+        todo.completed
+      );
+
+      if (cachedTodos.length > 0) {
+        const totalPoints = cachedTodos.reduce((sum, todo) => {
+          let points = todo.priority_score || 0;
+          
+          if (todo.duration_minutes && todo.actual_minutes !== null && todo.duration_minutes > 0) {
+            const timeUsagePercentage = (todo.actual_minutes / todo.duration_minutes) * 100;
+            points = (todo.priority_score || 0) * (timeUsagePercentage / 100);
+          }
+          
+          return sum + points;
+        }, 0);
+
+        const totalCompleted = cachedTodos.length;
+        const averageScore = totalCompleted > 0 ? totalPoints / totalCompleted : 0;
+        const totalEstimated = cachedTodos.reduce((sum, todo) => sum + (todo.duration_minutes || 0), 0);
+        const totalActual = cachedTodos.reduce((sum, todo) => sum + (todo.actual_minutes || 0), 0);
+        
+        let timeUsage = 0;
+        let usageLabel = 'No data';
+        
+        if (totalEstimated > 0 && totalActual >= 0) {
+          timeUsage = (totalActual / totalEstimated) * 100;
+          if (timeUsage < 50) {
+            usageLabel = 'Poor Effort';
+          } else if (timeUsage >= 50 && timeUsage < 75) {
+            usageLabel = 'Below Standard';
+          } else if (timeUsage >= 75 && timeUsage <= 100) {
+            usageLabel = 'Standard';
+          } else if (timeUsage > 100 && timeUsage <= 150) {
+            usageLabel = 'Excellent';
+          } else if (timeUsage > 150) {
+            usageLabel = 'Outstanding';
+          }
+        } else if (totalEstimated === 0) {
+          usageLabel = 'No estimates';
+        }
+
+        return {
+          totalPoints: Math.round(totalPoints * 10) / 10,
+          totalCompleted,
+          averageScore: Math.round(averageScore * 10) / 10,
+          timeUsage: Math.round(timeUsage),
+          usageLabel,
+          totalEstimated,
+          totalActual
+        };
+      }
+
+      // Fallback ke database jika cache tidak lengkap
       const { data, error } = await supabase
         .from('todos')
         .select('priority_score, duration_minutes, actual_minutes')
         .eq('user_id', user.id)
-        .gte('date', format(monthStart, 'yyyy-MM-dd'))
-        .lte('date', format(monthEnd, 'yyyy-MM-dd'))
+        .gte('date', monthStartStr)
+        .lte('date', monthEndStr)
         .eq('completed', true);
 
       if (error) throw error;
@@ -511,7 +671,7 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
         totalActual: 0
       };
     }
-  }, [user?.id]);
+  }, [user?.id, allTodos]);
 
   const [monthlyStats, setMonthlyStats] = useState({
     totalPoints: 0,
@@ -527,7 +687,7 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
     if (user && showStats && !readOnly) {
       getMonthlyStats().then(setMonthlyStats);
     }
-  }, [user, showStats, todos, getMonthlyStats, readOnly]);
+  }, [user, showStats, allTodos, getMonthlyStats, readOnly]);
 
   const getTaskStatus = useCallback((todo: Todo) => {
     if (todo.completed) return 'Completed';
@@ -663,7 +823,7 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
               <div className="flex items-center space-x-1">
                 <button
                   onClick={() => navigateDate('prev')}
-                  className="btn-icon-secondary"
+                  className="btn-icon-secondary transition-all duration-200"
                 >
                   <ChevronLeft className="w-3 h-3" />
                 </button>
@@ -680,7 +840,7 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
                 
                 <button
                   onClick={() => navigateDate('next')}
-                  className="btn-icon-secondary"
+                  className="btn-icon-secondary transition-all duration-200"
                 >
                   <ChevronRight className="w-3 h-3" />
                 </button>
@@ -689,7 +849,7 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
               {!isToday(selectedDate) && (
                 <button
                   onClick={goToToday}
-                  className="btn-secondary text-xs"
+                  className="btn-secondary text-xs transition-all duration-200"
                 >
                   Today
                 </button>
@@ -698,7 +858,7 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
 
             {/* Week Calendar */}
             {showCalendar && (
-              <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 animate-slideDown">
                 <div className="grid grid-cols-7 gap-1">
                   {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
                     <div key={day} className="text-center text-xs font-medium text-gray-500 py-1.5">
@@ -708,10 +868,7 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
                   {weekDays.map((day, index) => (
                     <button
                       key={day.toISOString()}
-                      onClick={() => {
-                        setSelectedDate(day);
-                        setShowCalendar(false);
-                      }}
+                      onClick={() => handleDateSelect(day)}
                       className={`p-1.5 text-xs rounded-lg transition-all duration-200 hover-lift ${
                         isSameDay(day, selectedDate)
                           ? 'bg-blue-600 text-white'
@@ -754,7 +911,7 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
               )}
             </div>
           ) : (
-            todos.slice(0, readOnly ? 5 : todos.length).map((todo, index) => (
+            todos.map((todo, index) => (
               <div
                 key={todo.id}
                 className={`p-3 rounded-lg border transition-all duration-200 hover-lift ${
@@ -876,7 +1033,7 @@ const TodoList: React.FC<TodoListProps> = ({ readOnly = false }) => {
                 onClick={() => window.location.href = '/?category=todos'}
                 className="text-blue-600 hover:text-blue-700 text-xs"
               >
-                View all {todos.length} tasks →
+                View all {allTodos.filter(todo => todo.date === dateStr).length} tasks →
               </button>
             </div>
           )}

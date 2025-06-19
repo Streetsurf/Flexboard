@@ -119,18 +119,50 @@ const BodyTracker: React.FC = () => {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
 
-  // Data states
+  // Data states dengan cache
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [calorieEntries, setCalorieEntries] = useState<CalorieEntry[]>([]);
-  const [workoutEntries, setWorkoutEntries] = useState<WorkoutEntry[]>([]);
-  const [weightEntries, setWeightEntries] = useState<WeightEntry[]>([]);
-  const [sleepEntries, setSleepEntries] = useState<SleepEntry[]>([]);
-  const [allWeightEntries, setAllWeightEntries] = useState<WeightEntry[]>([]); // For getting current weight
+  const [allCalorieEntries, setAllCalorieEntries] = useState<CalorieEntry[]>([]);
+  const [allWorkoutEntries, setAllWorkoutEntries] = useState<WorkoutEntry[]>([]);
+  const [allWeightEntries, setAllWeightEntries] = useState<WeightEntry[]>([]);
+  const [allSleepEntries, setAllSleepEntries] = useState<SleepEntry[]>([]);
 
   // Memoized calculations
   const weekStart = useMemo(() => startOfWeek(selectedWeek, { weekStartsOn: 1 }), [selectedWeek]);
   const weekEnd = useMemo(() => endOfWeek(selectedWeek, { weekStartsOn: 1 }), [selectedWeek]);
   const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: weekEnd }), [weekStart, weekEnd]);
+
+  // Filter data untuk minggu yang dipilih dari cache
+  const calorieEntries = useMemo(() => {
+    const weekStartStr = format(weekStart, 'yyyy-MM-dd');
+    const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
+    return allCalorieEntries.filter(entry => 
+      entry.date >= weekStartStr && entry.date <= weekEndStr
+    );
+  }, [allCalorieEntries, weekStart, weekEnd]);
+
+  const workoutEntries = useMemo(() => {
+    const weekStartStr = format(weekStart, 'yyyy-MM-dd');
+    const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
+    return allWorkoutEntries.filter(entry => 
+      entry.date >= weekStartStr && entry.date <= weekEndStr
+    );
+  }, [allWorkoutEntries, weekStart, weekEnd]);
+
+  const weightEntries = useMemo(() => {
+    const weekStartStr = format(weekStart, 'yyyy-MM-dd');
+    const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
+    return allWeightEntries.filter(entry => 
+      entry.date >= weekStartStr && entry.date <= weekEndStr
+    );
+  }, [allWeightEntries, weekStart, weekEnd]);
+
+  const sleepEntries = useMemo(() => {
+    const weekStartStr = format(weekStart, 'yyyy-MM-dd');
+    const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
+    return allSleepEntries.filter(entry => 
+      entry.date >= weekStartStr && entry.date <= weekEndStr
+    );
+  }, [allSleepEntries, weekStart, weekEnd]);
 
   // Get current weight from latest weight entry
   const getCurrentWeight = useCallback((): number => {
@@ -188,22 +220,11 @@ const BodyTracker: React.FC = () => {
       };
     }
 
-    const weekStartStr = format(weekStart, 'yyyy-MM-dd');
-    const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
-
     // Filter entries for current week
-    const weekCalories = calorieEntries.filter(entry => 
-      entry.date >= weekStartStr && entry.date <= weekEndStr
-    );
-    const weekWorkouts = workoutEntries.filter(entry => 
-      entry.date >= weekStartStr && entry.date <= weekEndStr
-    );
-    const weekSleep = sleepEntries.filter(entry => 
-      entry.date >= weekStartStr && entry.date <= weekEndStr
-    );
-    const weekWeights = weightEntries.filter(entry => 
-      entry.date >= weekStartStr && entry.date <= weekEndStr
-    );
+    const weekCalories = calorieEntries;
+    const weekWorkouts = workoutEntries;
+    const weekSleep = sleepEntries;
+    const weekWeights = weightEntries;
 
     // Get unique dates that have either calorie or workout data
     const datesWithCalorieData = new Set(weekCalories.map(entry => entry.date));
@@ -360,7 +381,7 @@ const BodyTracker: React.FC = () => {
     setConnectionError(errorMessage);
   }, []);
 
-  // Data fetching functions with enhanced error handling
+  // Data fetching functions with enhanced error handling and caching
   const fetchProfile = useCallback(async () => {
     if (!user?.id) return;
     
@@ -379,67 +400,54 @@ const BodyTracker: React.FC = () => {
     }
   }, [user?.id, handleError]);
 
-  const fetchAllWeightEntries = useCallback(async () => {
+  const fetchAllData = useCallback(async () => {
     if (!user?.id) return;
     
     try {
       setConnectionError(null);
-      // Fetch all weight entries to get current weight
-      const { data, error } = await supabase
-        .from('weight_entries')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('date', { ascending: false })
-        .limit(50); // Get recent entries
+      
+      // Fetch data untuk 3 bulan ke depan dan belakang
+      const startDate = new Date(selectedWeek);
+      startDate.setMonth(startDate.getMonth() - 3);
+      const endDate = new Date(selectedWeek);
+      endDate.setMonth(endDate.getMonth() + 3);
+      
+      const startDateStr = format(startDate, 'yyyy-MM-dd');
+      const endDateStr = format(endDate, 'yyyy-MM-dd');
 
-      if (error) throw error;
-      setAllWeightEntries(data || []);
-    } catch (error) {
-      handleError(error, 'fetch weight entries');
-    }
-  }, [user?.id, handleError]);
-
-  const fetchWeeklyData = useCallback(async () => {
-    if (!user?.id) return;
-    
-    try {
-      setConnectionError(null);
-      const weekStartStr = format(weekStart, 'yyyy-MM-dd');
-      const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
-
-      // Fetch all data for the week
+      // Fetch all data in parallel
       const [caloriesRes, workoutsRes, weightsRes, sleepRes] = await Promise.all([
         supabase
           .from('calorie_entries')
           .select('*')
           .eq('user_id', user.id)
-          .gte('date', weekStartStr)
-          .lte('date', weekEndStr)
+          .gte('date', startDateStr)
+          .lte('date', endDateStr)
           .order('created_at', { ascending: false }),
         
         supabase
           .from('workout_entries')
           .select('*')
           .eq('user_id', user.id)
-          .gte('date', weekStartStr)
-          .lte('date', weekEndStr)
+          .gte('date', startDateStr)
+          .lte('date', endDateStr)
           .order('created_at', { ascending: false }),
         
         supabase
           .from('weight_entries')
           .select('*')
           .eq('user_id', user.id)
-          .gte('date', weekStartStr)
-          .lte('date', weekEndStr)
-          .order('date', { ascending: true }),
+          .gte('date', startDateStr)
+          .lte('date', endDateStr)
+          .order('date', { ascending: false }),
         
         supabase
           .from('sleep_entries')
           .select('*')
           .eq('user_id', user.id)
-          .gte('date', weekStartStr)
-          .lte('date', weekEndStr)
-          .order('date', { ascending: true })
+          .gte('date', startDateStr)
+          .lte('date', endDateStr)
+          .order('date', { ascending: false })
       ]);
 
       if (caloriesRes.error) throw caloriesRes.error;
@@ -447,14 +455,14 @@ const BodyTracker: React.FC = () => {
       if (weightsRes.error) throw weightsRes.error;
       if (sleepRes.error) throw sleepRes.error;
 
-      setCalorieEntries(caloriesRes.data || []);
-      setWorkoutEntries(workoutsRes.data || []);
-      setWeightEntries(weightsRes.data || []);
-      setSleepEntries(sleepRes.data || []);
+      setAllCalorieEntries(caloriesRes.data || []);
+      setAllWorkoutEntries(workoutsRes.data || []);
+      setAllWeightEntries(weightsRes.data || []);
+      setAllSleepEntries(sleepRes.data || []);
     } catch (error) {
-      handleError(error, 'fetch weekly data');
+      handleError(error, 'fetch data');
     }
-  }, [user?.id, weekStart, weekEnd, handleError]);
+  }, [user?.id, selectedWeek, handleError]);
 
   // Retry function
   const retryConnection = useCallback(async () => {
@@ -471,33 +479,41 @@ const BodyTracker: React.FC = () => {
     }
     
     try {
-      await Promise.all([fetchProfile(), fetchAllWeightEntries(), fetchWeeklyData()]);
+      await Promise.all([fetchProfile(), fetchAllData()]);
     } finally {
       setLoading(false);
     }
-  }, [fetchProfile, fetchAllWeightEntries, fetchWeeklyData]);
+  }, [fetchProfile, fetchAllData]);
+
+  // Refresh data function untuk form components
+  const refreshData = useCallback(() => {
+    fetchAllData();
+  }, [fetchAllData]);
 
   // Effects
   useEffect(() => {
     if (user) {
-      Promise.all([fetchProfile(), fetchAllWeightEntries(), fetchWeeklyData()]).finally(() => {
+      Promise.all([fetchProfile(), fetchAllData()]).finally(() => {
         setLoading(false);
       });
     }
-  }, [user, fetchProfile, fetchAllWeightEntries, fetchWeeklyData]);
+  }, [user, fetchProfile, fetchAllData]);
 
-  // Navigation functions
-  const navigateWeek = (direction: 'prev' | 'next') => {
-    if (direction === 'prev') {
-      setSelectedWeek(prev => subWeeks(prev, 1));
-    } else {
-      setSelectedWeek(prev => addWeeks(prev, 1));
-    }
-  };
+  // Navigation functions dengan smooth transition
+  const navigateWeek = useCallback((direction: 'prev' | 'next') => {
+    const newWeek = direction === 'prev' 
+      ? subWeeks(selectedWeek, 1)
+      : addWeeks(selectedWeek, 1);
+    
+    setSelectedWeek(newWeek);
+    
+    // Preload data untuk minggu baru jika diperlukan
+    // Data akan difilter dari cache yang sudah ada
+  }, [selectedWeek]);
 
-  const goToCurrentWeek = () => {
+  const goToCurrentWeek = useCallback(() => {
     setSelectedWeek(new Date());
-  };
+  }, []);
 
   // Utility functions
   const getStatColor = (type: string, value: number) => {
@@ -628,7 +644,7 @@ const BodyTracker: React.FC = () => {
           <div className="flex items-center space-x-2">
             <button
               onClick={() => navigateWeek('prev')}
-              className="btn-icon-secondary"
+              className="btn-icon-secondary transition-all duration-200"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -644,7 +660,7 @@ const BodyTracker: React.FC = () => {
             
             <button
               onClick={() => navigateWeek('next')}
-              className="btn-icon-secondary"
+              className="btn-icon-secondary transition-all duration-200"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -652,7 +668,7 @@ const BodyTracker: React.FC = () => {
             {!isSameWeek(selectedWeek, new Date()) && (
               <button
                 onClick={goToCurrentWeek}
-                className="btn-secondary text-xs ml-2"
+                className="btn-secondary text-xs ml-2 transition-all duration-200"
               >
                 Minggu Ini
               </button>
@@ -907,7 +923,7 @@ const BodyTracker: React.FC = () => {
           profile={profile} 
           onSave={() => {
             fetchProfile();
-            fetchAllWeightEntries(); // Refresh weight data when profile changes
+            fetchAllData(); // Refresh weight data when profile changes
           }}
         />
       )}
@@ -918,7 +934,7 @@ const BodyTracker: React.FC = () => {
           selectedDate={selectedDate}
           onDateChange={setSelectedDate}
           entries={calorieEntries}
-          onRefresh={fetchWeeklyData}
+          onRefresh={refreshData}
         />
       )}
 
@@ -928,7 +944,7 @@ const BodyTracker: React.FC = () => {
           selectedDate={selectedDate}
           onDateChange={setSelectedDate}
           entries={workoutEntries}
-          onRefresh={fetchWeeklyData}
+          onRefresh={refreshData}
         />
       )}
 
@@ -938,10 +954,7 @@ const BodyTracker: React.FC = () => {
           selectedDate={selectedDate}
           onDateChange={setSelectedDate}
           entries={weightEntries}
-          onRefresh={() => {
-            fetchWeeklyData();
-            fetchAllWeightEntries(); // Refresh all weight data when weight changes
-          }}
+          onRefresh={refreshData}
         />
       )}
 
@@ -951,7 +964,7 @@ const BodyTracker: React.FC = () => {
           selectedDate={selectedDate}
           onDateChange={setSelectedDate}
           entries={sleepEntries}
-          onRefresh={fetchWeeklyData}
+          onRefresh={refreshData}
         />
       )}
 

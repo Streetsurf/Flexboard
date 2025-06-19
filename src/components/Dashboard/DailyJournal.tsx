@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { BookOpen, Save, Edit2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
@@ -13,67 +13,178 @@ interface JournalEntry {
 
 interface DailyJournalProps {
   readOnly?: boolean;
+  selectedDate?: Date; // Tambah prop untuk tanggal yang dipilih
 }
 
-const DailyJournal: React.FC<DailyJournalProps> = ({ readOnly = false }) => {
+const DailyJournal: React.FC<DailyJournalProps> = ({ 
+  readOnly = false, 
+  selectedDate = new Date() 
+}) => {
+  const [allEntries, setAllEntries] = useState<JournalEntry[]>([]); // Cache semua entries
   const [entry, setEntry] = useState('');
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [loading, setLoading] = useState(true);
   const { user } = useAuth();
-  const today = format(new Date(), 'yyyy-MM-dd');
+  
+  // Memoize date string
+  const dateStr = useMemo(() => format(selectedDate, 'yyyy-MM-dd'), [selectedDate]);
+  
+  // Get entry untuk tanggal yang dipilih dari cache
+  const currentEntry = useMemo(() => {
+    return allEntries.find(e => e.date === dateStr);
+  }, [allEntries, dateStr]);
 
+  // Update entry state ketika currentEntry berubah
   useEffect(() => {
-    if (user) {
-      fetchTodayEntry();
-    }
-  }, [user]);
+    setEntry(currentEntry?.content || '');
+  }, [currentEntry]);
 
-  const fetchTodayEntry = async () => {
+  // Fetch entries untuk range tanggal yang lebih luas
+  const fetchEntriesRange = useCallback(async () => {
+    if (!user?.id) return;
+    
+    try {
+      setLoading(true);
+      
+      // Ambil data untuk 3 bulan ke depan dan belakang
+      const startDate = new Date(selectedDate);
+      startDate.setMonth(startDate.getMonth() - 3);
+      const endDate = new Date(selectedDate);
+      endDate.setMonth(endDate.getMonth() + 3);
+      
+      const { data, error } = await supabase
+        .from('journal_entries')
+        .select('*')
+        .eq('user_id', user.id)
+        .gte('date', format(startDate, 'yyyy-MM-dd'))
+        .lte('date', format(endDate, 'yyyy-MM-dd'))
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+      setAllEntries(data || []);
+    } catch (error) {
+      console.error('Error fetching journal entries:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id, selectedDate]);
+
+  // Fetch entry untuk tanggal spesifik jika belum ada di cache
+  const fetchEntryForDate = useCallback(async (targetDate: string) => {
+    if (!user?.id) return;
+    
+    // Cek apakah data untuk tanggal ini sudah ada di cache
+    const existingEntry = allEntries.find(e => e.date === targetDate);
+    if (existingEntry) return; // Sudah ada di cache
+    
     try {
       const { data, error } = await supabase
         .from('journal_entries')
         .select('*')
-        .eq('user_id', user?.id)
-        .eq('date', today);
+        .eq('user_id', user.id)
+        .eq('date', targetDate)
+        .maybeSingle();
 
       if (error) throw error;
       
-      if (data && data.length > 0) {
-        setEntry(data[0].content);
-      } else {
-        setEntry('');
+      if (data) {
+        // Tambahkan ke cache
+        setAllEntries(prev => {
+          const filtered = prev.filter(e => e.date !== targetDate);
+          return [data, ...filtered].sort((a, b) => 
+            new Date(b.date).getTime() - new Date(a.date).getTime()
+          );
+        });
       }
     } catch (error) {
-      console.error('Error fetching journal entry:', error);
+      console.error('Error fetching journal entry for date:', error);
     }
-  };
+  }, [user?.id, allEntries]);
 
-  const saveEntry = async () => {
-    if (!entry.trim() || readOnly) return;
+  // Initial load
+  useEffect(() => {
+    if (user) {
+      fetchEntriesRange();
+    }
+  }, [user, fetchEntriesRange]);
+
+  // Load data untuk tanggal baru saat navigasi
+  useEffect(() => {
+    if (user && dateStr) {
+      fetchEntryForDate(dateStr);
+    }
+  }, [user, dateStr, fetchEntryForDate]);
+
+  const saveEntry = useCallback(async () => {
+    if (!entry.trim() || readOnly || !user?.id) return;
     
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from('journal_entries')
-        .upsert({
-          content: entry,
-          date: today,
-          user_id: user?.id,
-        });
+      const entryData = {
+        content: entry.trim(),
+        date: dateStr,
+        user_id: user.id,
+      };
 
-      if (error) throw error;
+      if (currentEntry) {
+        // Update existing entry
+        const { data, error } = await supabase
+          .from('journal_entries')
+          .update(entryData)
+          .eq('id', currentEntry.id)
+          .select()
+          .single();
+
+        if (error) throw error;
+        
+        // Update cache
+        setAllEntries(prev => prev.map(e => 
+          e.id === currentEntry.id ? data : e
+        ));
+      } else {
+        // Create new entry
+        const { data, error } = await supabase
+          .from('journal_entries')
+          .insert([entryData])
+          .select()
+          .single();
+
+        if (error) throw error;
+        
+        // Add to cache
+        setAllEntries(prev => [data, ...prev].sort((a, b) => 
+          new Date(b.date).getTime() - new Date(a.date).getTime()
+        ));
+      }
+      
       setLastSaved(new Date());
     } catch (error) {
       console.error('Error saving journal entry:', error);
     } finally {
       setSaving(false);
     }
-  };
+  }, [entry, readOnly, user?.id, dateStr, currentEntry]);
 
-  const truncateText = (text: string, maxLength: number = 150) => {
+  const truncateText = useCallback((text: string, maxLength: number = 150) => {
     if (text.length <= maxLength) return text;
     return text.substring(0, maxLength) + '...';
-  };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="card animate-fadeIn">
+        <div className="animate-pulse">
+          <div className="h-4 bg-gray-100 rounded w-1/4 mb-4"></div>
+          <div className="space-y-3">
+            <div className="h-3 bg-gray-100 rounded"></div>
+            <div className="h-3 bg-gray-100 rounded w-5/6"></div>
+            <div className="h-3 bg-gray-100 rounded w-4/6"></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="card animate-fadeIn">
@@ -106,7 +217,7 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ readOnly = false }) => {
       <div className="space-y-3">
         {/* Date */}
         <div className="text-xs text-gray-600">
-          {format(new Date(), 'EEEE, MMMM d, yyyy')}
+          {format(selectedDate, 'EEEE, MMMM d, yyyy')}
         </div>
         
         {readOnly ? (
@@ -127,7 +238,7 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ readOnly = false }) => {
             ) : (
               <div className="text-center py-4 text-gray-500">
                 <BookOpen className="w-6 h-6 mx-auto mb-2 text-gray-300" />
-                <p className="text-xs mb-2">No journal entry for today</p>
+                <p className="text-xs mb-2">No journal entry for this date</p>
                 <button
                   onClick={() => window.location.href = '/?category=journal'}
                   className="text-blue-600 hover:text-blue-700 text-xs"
@@ -144,14 +255,14 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ readOnly = false }) => {
               value={entry}
               onChange={(e) => setEntry(e.target.value)}
               placeholder="How was your day? What are you thinking about?"
-              className="textarea h-24 resize-none"
+              className="textarea h-24 resize-none transition-all duration-200"
               disabled={saving}
             />
             
             <button
               onClick={saveEntry}
               disabled={saving || !entry.trim()}
-              className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed micro-bounce"
+              className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed micro-bounce transition-all duration-200"
             >
               <Save className="w-3 h-3 mr-1.5" />
               {saving ? 'Saving...' : 'Save Entry'}
