@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Mail, Calendar, Save, Edit2, X, Download, Upload, Image } from 'lucide-react';
+import { User, Mail, Calendar, Save, Edit2, X, Download, Upload, Image, Camera, Star, Award, Target, Activity } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { triggerDataUpdate } from '../../hooks/useGlobalState';
@@ -240,7 +240,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }
         <div className="card animate-fadeIn">
           <div className="animate-pulse">
             <div className="flex items-center space-x-4 mb-5">
-              <div className="w-16 h-16 bg-gray-100 rounded-full"></div>
+              <div className="w-20 h-20 bg-gray-100 rounded-2xl"></div>
               <div className="space-y-2">
                 <div className="h-4 bg-gray-100 rounded w-32"></div>
                 <div className="h-3 bg-gray-100 rounded w-24"></div>
@@ -257,7 +257,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* Breadcrumbs */}
       <nav className="breadcrumbs">
         <span>Settings</span>
@@ -288,208 +288,279 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate, globalData }
 
       {/* General Tab */}
       {activeTab === 'general' && (
-        <div className="card animate-fadeIn">
-          <div className="card-header">
-            <h2 className="card-title">Profile Information</h2>
-            {!isEditing && (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="btn-secondary"
-              >
-                <Edit2 className="w-3.5 h-3.5 mr-1.5" />
-                Edit Profile
-              </button>
-            )}
-          </div>
+        <div className="space-y-6">
+          {/* Enhanced Profile Information Card */}
+          <div className="relative overflow-hidden bg-gradient-to-br from-blue-50 via-white to-purple-50 rounded-3xl border border-gray-200 shadow-lg">
+            {/* Background Pattern */}
+            <div className="absolute inset-0 opacity-5">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500 rounded-full -translate-y-32 translate-x-32"></div>
+              <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-500 rounded-full translate-y-24 -translate-x-24"></div>
+            </div>
 
-          {isEditing ? (
-            <form onSubmit={handleSave} className="space-y-5">
-              {/* Logo Upload Section */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-3">
-                  Profile Logo
-                </label>
-                
-                <div className="flex items-center space-x-6">
-                  {/* Current logo preview */}
-                  <div className="w-20 h-20 bg-gray-100 border-2 border-dashed border-gray-300 rounded-xl flex items-center justify-center overflow-hidden">
-                    {editForm.avatar_url && isValidImageUrl(editForm.avatar_url) ? (
-                      <img
-                        src={editForm.avatar_url}
-                        alt="Profile logo"
-                        className="w-full h-full object-cover rounded-xl"
-                      />
-                    ) : (
-                      <User className="w-8 h-8 text-gray-400" />
-                    )}
+            <div className="relative p-8">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-8">
+                <div className="flex items-center space-x-2 mb-4 lg:mb-0">
+                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center">
+                    <User className="w-5 h-5 text-white" />
                   </div>
-                  
-                  {/* Upload controls */}
-                  <div className="flex-1">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileUpload}
-                      className="hidden"
-                    />
-                    
-                    <div className="space-y-3">
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={uploading}
-                        className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <Upload className="w-4 h-4 mr-2" />
-                        {uploading ? 'Processing...' : 'Add Logo'}
-                      </button>
-                      
-                      {editForm.avatar_url && (
-                        <button
-                          type="button"
-                          onClick={() => setEditForm({ ...editForm, avatar_url: '' })}
-                          className="block text-sm text-red-600 hover:text-red-700"
-                        >
-                          Remove Logo
-                        </button>
-                      )}
-                    </div>
-                    
-                    {errors.avatar && (
-                      <p className="text-red-600 text-xs mt-2">{errors.avatar}</p>
-                    )}
-                    
-                    <p className="text-xs text-gray-500 mt-2">
-                      Upload a PNG, JPG, or GIF image. Maximum size: 5MB.<br />
-                      Image will be automatically resized to 500x500px.
-                    </p>
-                  </div>
+                  <h2 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                    Profile Information
+                  </h2>
                 </div>
-              </div>
-
-              {/* Form Fields */}
-              <div className="grid-2">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Full Name
-                  </label>
-                  <input
-                    type="text"
-                    value={editForm.full_name}
-                    onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })}
-                    placeholder="Enter your full name"
-                    className="input"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    value={profile?.email || ''}
-                    disabled
-                    className="input opacity-50 cursor-not-allowed"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Email cannot be changed
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Bio
-                </label>
-                <textarea
-                  value={editForm.bio}
-                  onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
-                  placeholder="Tell us about yourself..."
-                  rows={3}
-                  className="textarea"
-                />
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex space-x-2">
-                <button
-                  type="submit"
-                  disabled={saving || uploading}
-                  className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Save className="w-3.5 h-3.5 mr-1.5" />
-                  {saving ? 'Saving...' : 'Save Changes'}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCancel}
-                  className="btn-secondary"
-                  disabled={saving || uploading}
-                >
-                  <X className="w-3.5 h-3.5 mr-1.5" />
-                  Cancel
-                </button>
-              </div>
-            </form>
-          ) : (
-            <div className="space-y-5">
-              {/* Profile Display */}
-              <div className="flex items-center space-x-5">
-                <div className="w-20 h-20 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden border border-gray-200">
-                  {profile?.avatar_url && isValidImageUrl(profile.avatar_url) ? (
-                    <img
-                      src={profile.avatar_url}
-                      alt="Profile logo"
-                      className="w-full h-full object-cover rounded-xl"
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                        e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                      }}
-                    />
-                  ) : null}
-                  <User className={`w-8 h-8 text-gray-400 ${profile?.avatar_url && isValidImageUrl(profile.avatar_url) ? 'hidden' : ''}`} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    {profile?.full_name || 'No name set'}
-                  </h3>
-                  <p className="text-gray-600 flex items-center mt-1 text-sm">
-                    <Mail className="w-3.5 h-3.5 mr-1.5" />
-                    {profile?.email}
-                  </p>
-                  {profile?.created_at && (
-                    <p className="text-xs text-gray-500 flex items-center mt-1">
-                      <Calendar className="w-3.5 h-3.5 mr-1.5" />
-                      Member since {new Date(profile.created_at).toLocaleDateString()}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Bio */}
-              {profile?.bio && (
-                <div>
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">About</h4>
-                  <p className="text-gray-600 leading-relaxed text-sm">{profile.bio}</p>
-                </div>
-              )}
-
-              {!profile?.bio && !profile?.full_name && (
-                <div className="text-center py-8">
-                  <User className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-                  <p className="text-gray-500 mb-4 text-sm">Your profile is incomplete</p>
+                {!isEditing && (
                   <button
                     onClick={() => setIsEditing(true)}
-                    className="btn-primary"
+                    className="btn-primary hover:shadow-lg transition-all duration-300"
                   >
-                    Complete your profile
+                    <Edit2 className="w-4 h-4 mr-2" />
+                    Edit Profile
                   </button>
+                )}
+              </div>
+
+              {isEditing ? (
+                <form onSubmit={handleSave} className="space-y-8">
+                  {/* Enhanced Logo Upload Section */}
+                  <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-white/50">
+                    <label className="block text-lg font-semibold text-gray-800 mb-4">
+                      Profile Logo
+                    </label>
+                    
+                    <div className="flex flex-col lg:flex-row lg:items-center space-y-6 lg:space-y-0 lg:space-x-8">
+                      {/* Logo Preview */}
+                      <div className="relative group">
+                        <div className="w-32 h-32 bg-gradient-to-br from-gray-100 to-gray-200 border-4 border-white rounded-3xl flex items-center justify-center overflow-hidden shadow-xl">
+                          {editForm.avatar_url && isValidImageUrl(editForm.avatar_url) ? (
+                            <img
+                              src={editForm.avatar_url}
+                              alt="Profile logo"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <User className="w-12 h-12 text-gray-400" />
+                          )}
+                        </div>
+                        
+                        {/* Upload Overlay */}
+                        <div className="absolute inset-0 bg-black/50 rounded-3xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 cursor-pointer"
+                             onClick={() => fileInputRef.current?.click()}>
+                          <Camera className="w-8 h-8 text-white" />
+                        </div>
+                      </div>
+                      
+                      {/* Upload Controls */}
+                      <div className="flex-1">
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/*"
+                          onChange={handleFileUpload}
+                          className="hidden"
+                        />
+                        
+                        <div className="space-y-4">
+                          <div className="flex flex-wrap gap-3">
+                            <button
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()}
+                              disabled={uploading}
+                              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transition-transform"
+                            >
+                              <Upload className="w-4 h-4 mr-2" />
+                              {uploading ? 'Processing...' : 'Upload Logo'}
+                            </button>
+                            
+                            {editForm.avatar_url && (
+                              <button
+                                type="button"
+                                onClick={() => setEditForm({ ...editForm, avatar_url: '' })}
+                                className="px-4 py-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-xl transition-colors text-sm font-medium"
+                              >
+                                Remove Logo
+                              </button>
+                            )}
+                          </div>
+                          
+                          {errors.avatar && (
+                            <div className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-xl text-sm">
+                              {errors.avatar}
+                            </div>
+                          )}
+                          
+                          <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                            <h4 className="font-medium text-blue-900 mb-2 text-sm">Upload Guidelines</h4>
+                            <ul className="text-xs text-blue-700 space-y-1">
+                              <li>• Supported formats: PNG, JPG, GIF</li>
+                              <li>• Maximum size: 5MB</li>
+                              <li>• Recommended: Square images (1:1 ratio)</li>
+                              <li>• Auto-resized to 500x500px</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Enhanced Form Fields */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-white/50">
+                      <label className="block text-sm font-semibold text-gray-700 mb-3">
+                        Full Name
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.full_name}
+                        onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })}
+                        placeholder="Enter your full name"
+                        className="input"
+                      />
+                    </div>
+
+                    <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-white/50">
+                      <label className="block text-sm font-semibold text-gray-700 mb-3">
+                        Email Address
+                      </label>
+                      <input
+                        type="email"
+                        value={profile?.email || ''}
+                        disabled
+                        className="input opacity-50 cursor-not-allowed"
+                      />
+                      <p className="text-xs text-gray-500 mt-2">
+                        Email cannot be changed
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-white/50">
+                    <label className="block text-sm font-semibold text-gray-700 mb-3">
+                      Bio
+                    </label>
+                    <textarea
+                      value={editForm.bio}
+                      onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
+                      placeholder="Tell us about yourself..."
+                      rows={4}
+                      className="textarea"
+                    />
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex flex-col sm:flex-row gap-3 pt-6 border-t border-white/50">
+                    <button
+                      type="submit"
+                      disabled={saving || uploading}
+                      className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg transition-all duration-300"
+                    >
+                      <Save className="w-4 h-4 mr-2" />
+                      {saving ? 'Saving...' : 'Save Changes'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCancel}
+                      className="btn-secondary"
+                      disabled={saving || uploading}
+                    >
+                      <X className="w-4 h-4 mr-2" />
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="space-y-8">
+                  {/* Enhanced Profile Display */}
+                  <div className="flex flex-col lg:flex-row lg:items-center space-y-6 lg:space-y-0 lg:space-x-8">
+                    <div className="relative">
+                      <div className="w-32 h-32 bg-gradient-to-br from-gray-100 to-gray-200 border-4 border-white rounded-3xl flex items-center justify-center overflow-hidden shadow-xl">
+                        {profile?.avatar_url && isValidImageUrl(profile.avatar_url) ? (
+                          <img
+                            src={profile.avatar_url}
+                            alt="Profile logo"
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                              e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                            }}
+                          />
+                        ) : null}
+                        <User className={`w-12 h-12 text-gray-400 ${profile?.avatar_url && isValidImageUrl(profile.avatar_url) ? 'hidden' : ''}`} />
+                      </div>
+                      
+                      {/* Status Indicator */}
+                      <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-green-500 border-4 border-white rounded-full flex items-center justify-center">
+                        <div className="w-2 h-2 bg-white rounded-full"></div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex-1">
+                      <h3 className="text-3xl font-bold text-gray-900 mb-2">
+                        {profile?.full_name || 'No name set'}
+                      </h3>
+                      <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 mb-4">
+                        <div className="flex items-center">
+                          <Mail className="w-4 h-4 mr-2" />
+                          {profile?.email}
+                        </div>
+                        {profile?.created_at && (
+                          <div className="flex items-center">
+                            <Calendar className="w-4 h-4 mr-2" />
+                            Member since {new Date(profile.created_at).toLocaleDateString()}
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Profile Stats */}
+                      <div className="flex flex-wrap gap-4">
+                        <div className="flex items-center space-x-2 px-3 py-2 bg-white/70 rounded-xl border border-white/50">
+                          <Star className="w-4 h-4 text-yellow-500" />
+                          <span className="text-sm font-medium">Pro Member</span>
+                        </div>
+                        <div className="flex items-center space-x-2 px-3 py-2 bg-white/70 rounded-xl border border-white/50">
+                          <Award className="w-4 h-4 text-purple-500" />
+                          <span className="text-sm font-medium">5 Achievements</span>
+                        </div>
+                        <div className="flex items-center space-x-2 px-3 py-2 bg-white/70 rounded-xl border border-white/50">
+                          <Target className="w-4 h-4 text-green-500" />
+                          <span className="text-sm font-medium">12 Goals</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bio Section */}
+                  {profile?.bio && (
+                    <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-white/50">
+                      <h4 className="text-lg font-semibold text-gray-800 mb-3 flex items-center">
+                        <User className="w-5 h-5 mr-2 text-blue-500" />
+                        About
+                      </h4>
+                      <p className="text-gray-700 leading-relaxed">{profile.bio}</p>
+                    </div>
+                  )}
+
+                  {/* Empty State */}
+                  {!profile?.bio && !profile?.full_name && (
+                    <div className="text-center py-12">
+                      <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-purple-100 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                        <User className="w-10 h-10 text-gray-400" />
+                      </div>
+                      <h3 className="text-xl font-semibold text-gray-800 mb-2">Complete Your Profile</h3>
+                      <p className="text-gray-600 mb-6 max-w-md mx-auto">
+                        Add your personal information to make your FlexBoard experience more personalized.
+                      </p>
+                      <button
+                        onClick={() => setIsEditing(true)}
+                        className="btn-primary hover:shadow-lg transition-all duration-300"
+                      >
+                        <Edit2 className="w-4 h-4 mr-2" />
+                        Complete Profile
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          )}
+          </div>
         </div>
       )}
 
