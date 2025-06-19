@@ -36,13 +36,13 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
   useEffect(() => {
     if (profile) {
       setFormData({
-        age: profile.age?.toString() || '',
+        age: profile.age ? profile.age.toString() : '',
         gender: profile.gender,
-        height: profile.height?.toString() || '',
+        height: profile.height ? profile.height.toString() : '',
         activity_level: profile.activity_level,
-        target_weight: profile.target_weight?.toString() || '',
-        target_calories: profile.target_calories?.toString() || '',
-        target_workouts_per_week: profile.target_workouts_per_week.toString()
+        target_weight: profile.target_weight ? profile.target_weight.toString() : '',
+        target_calories: profile.target_calories ? profile.target_calories.toString() : '',
+        target_workouts_per_week: profile.target_workouts_per_week ? profile.target_workouts_per_week.toString() : '3'
       });
     }
   }, [profile]);
