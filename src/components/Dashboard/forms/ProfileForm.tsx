@@ -103,14 +103,18 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
     }
   };
 
-  // BMR & TDEE Calculations for preview using current weight
+  // BMR & TDEE Calculations using current weight - FIXED VERSION
   const calculateBMR = (): number => {
     const age = parseInt(formData.age);
     const height = parseFloat(formData.height);
-    const weight = currentWeight || parseFloat(formData.target_weight); // Use current weight if available
+    const weight = currentWeight || parseFloat(formData.target_weight);
     
-    if (!age || !height || !weight) return 0;
+    // Pastikan semua nilai ada dan valid
+    if (!age || age <= 0 || !height || height <= 0 || !weight || weight <= 0) {
+      return 0;
+    }
     
+    // Rumus Mifflin-St Jeor
     if (formData.gender === 'male') {
       return (10 * weight) + (6.25 * height) - (5 * age) + 5;
     } else {
@@ -119,6 +123,8 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
   };
 
   const calculateTDEE = (bmr: number): number => {
+    if (bmr <= 0) return 0;
+    
     const activityMultipliers = {
       sedentary: 1.2,
       lightly_active: 1.375,
@@ -126,12 +132,14 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
       very_active: 1.725,
       extremely_active: 1.9
     };
-    return bmr * activityMultipliers[formData.activity_level];
+    
+    return bmr * (activityMultipliers[formData.activity_level] || 1.55);
   };
 
+  // Hitung BMR dan TDEE secara real-time
   const bmr = calculateBMR();
   const tdee = calculateTDEE(bmr);
-  const weightUsed = currentWeight || parseFloat(formData.target_weight);
+  const weightUsed = currentWeight || parseFloat(formData.target_weight) || 0;
 
   const activityLabels = {
     sedentary: 'Tidak Aktif (Tidak olahraga)',
@@ -179,7 +187,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Umur
+                  Umur *
                 </label>
                 <input
                   type="number"
@@ -189,17 +197,19 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                   placeholder="25"
                   min="10"
                   max="120"
+                  required
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Jenis Kelamin
+                  Jenis Kelamin *
                 </label>
                 <select
                   value={formData.gender}
                   onChange={(e) => setFormData(prev => ({ ...prev, gender: e.target.value as any }))}
                   className="input"
+                  required
                 >
                   <option value="male">Laki-laki</option>
                   <option value="female">Perempuan</option>
@@ -208,7 +218,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Tinggi Badan (cm)
+                  Tinggi Badan (cm) *
                 </label>
                 <input
                   type="number"
@@ -218,6 +228,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                   placeholder="170"
                   min="50"
                   max="300"
+                  required
                 />
               </div>
             </div>
@@ -231,12 +242,13 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
             </h3>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Tingkat Aktivitas Harian
+                Tingkat Aktivitas Harian *
               </label>
               <select
                 value={formData.activity_level}
                 onChange={(e) => setFormData(prev => ({ ...prev, activity_level: e.target.value as any }))}
                 className="input"
+                required
               >
                 {Object.entries(activityLabels).map(([value, label]) => (
                   <option key={value} value={value}>{label}</option>
@@ -254,7 +266,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Target Berat Badan (kg)
+                  Target Berat Badan (kg) *
                 </label>
                 <input
                   type="number"
@@ -265,6 +277,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                   placeholder="65"
                   min="20"
                   max="300"
+                  required
                 />
                 {!currentWeight && (
                   <p className="text-xs text-gray-500 mt-1">
@@ -305,18 +318,22 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
             </div>
           </div>
 
-          {/* Calculations Preview */}
-          {bmr > 0 && (
+          {/* Calculations Preview - FIXED VERSION */}
+          {(formData.age && formData.height && (currentWeight || formData.target_weight)) && (
             <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
               <h4 className="font-medium text-blue-900 mb-3">Kalkulasi Metabolisme</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-3">
                 <div>
                   <span className="text-blue-700">BMR (Basal Metabolic Rate):</span>
-                  <span className="font-medium text-blue-900 ml-2">{Math.round(bmr)} kalori/hari</span>
+                  <span className="font-medium text-blue-900 ml-2">
+                    {bmr > 0 ? `${Math.round(bmr)} kalori/hari` : 'Masukkan data lengkap'}
+                  </span>
                 </div>
                 <div>
                   <span className="text-blue-700">TDEE (Total Daily Energy Expenditure):</span>
-                  <span className="font-medium text-blue-900 ml-2">{Math.round(tdee)} kalori/hari</span>
+                  <span className="font-medium text-blue-900 ml-2">
+                    {tdee > 0 ? `${Math.round(tdee)} kalori/hari` : 'Masukkan data lengkap'}
+                  </span>
                 </div>
               </div>
               <div className="p-3 bg-white border border-blue-200 rounded-lg">
@@ -328,7 +345,26 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                   TDEE adalah perkiraan kalori yang kamu bakar per hari berdasarkan aktivitas. 
                   Untuk menurunkan berat badan, konsumsi kalori di bawah TDEE.
                 </p>
+                {bmr > 0 && (
+                  <div className="mt-2 text-xs text-blue-700">
+                    <strong>Rumus BMR:</strong> {formData.gender === 'male' ? 'Laki-laki' : 'Perempuan'} = 
+                    {formData.gender === 'male' 
+                      ? ` (10 × ${weightUsed}) + (6.25 × ${formData.height}) - (5 × ${formData.age}) + 5`
+                      : ` (10 × ${weightUsed}) + (6.25 × ${formData.height}) - (5 × ${formData.age}) - 161`
+                    }
+                  </div>
+                )}
               </div>
+            </div>
+          )}
+
+          {/* Validation Message */}
+          {(!formData.age || !formData.height || (!currentWeight && !formData.target_weight)) && (
+            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
+              <p className="text-sm text-yellow-800">
+                <strong>Untuk menghitung BMR & TDEE:</strong> Masukkan umur, tinggi badan, dan 
+                {!currentWeight ? ' target berat badan' : ' data sudah lengkap'}
+              </p>
             </div>
           )}
 
