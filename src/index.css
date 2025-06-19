@@ -341,6 +341,11 @@
   @apply btn-icon hover:bg-gray-100 active:bg-gray-200 text-gray-600 hover:text-gray-900;
 }
 
+.btn-icon-danger {
+  @apply btn-icon bg-white hover:bg-red-50 active:bg-red-100 text-red-600 hover:text-red-700 border border-gray-200 hover:border-red-200;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
 /* ========================================
    🎨 ENHANCED CARD STYLES
    ======================================== */

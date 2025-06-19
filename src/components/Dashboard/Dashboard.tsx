@@ -17,7 +17,8 @@ import {
   Menu,
   X,
   BarChart3,
-  Dumbbell
+  Dumbbell,
+  Wallet
 } from 'lucide-react';
 
 // Lazy load heavy components
@@ -25,8 +26,9 @@ const ChannelManager = lazy(() => import('./ChannelManager'));
 const QuickLinksManager = lazy(() => import('./QuickLinksManager'));
 const AnalyticsDashboard = lazy(() => import('./AnalyticsDashboard'));
 const BodyTracker = lazy(() => import('./BodyTracker'));
+const MoneyTracker = lazy(() => import('./MoneyTracker'));
 
-type CategoryType = 'all' | 'todos' | 'journal' | 'content' | 'learning' | 'links' | 'prompts' | 'body' | 'profile' | 'analytics';
+type CategoryType = 'all' | 'todos' | 'journal' | 'content' | 'learning' | 'links' | 'prompts' | 'body' | 'money' | 'profile' | 'analytics';
 
 interface Category {
   id: CategoryType;
@@ -64,6 +66,11 @@ const categories: Category[] = [
     id: 'body',
     name: 'Body',
     icon: <Dumbbell className="w-4 h-4" />
+  },
+  {
+    id: 'money',
+    name: 'Money',
+    icon: <Wallet className="w-4 h-4" />
   },
   {
     id: 'links',
@@ -126,6 +133,8 @@ const Dashboard: React.FC = () => {
         ? 'Overview of all your productivity tools'
         : activeCategory === 'body'
         ? 'Track your fitness journey and health goals'
+        : activeCategory === 'money'
+        ? 'Manage your personal finances and track spending'
         : `Manage your ${category?.name.toLowerCase()}`
     };
   }, [activeCategory]);
@@ -155,6 +164,12 @@ const Dashboard: React.FC = () => {
         return (
           <Suspense fallback={<ComponentLoader />}>
             <BodyTracker />
+          </Suspense>
+        );
+      case 'money':
+        return (
+          <Suspense fallback={<ComponentLoader />}>
+            <MoneyTracker />
           </Suspense>
         );
       case 'links':
