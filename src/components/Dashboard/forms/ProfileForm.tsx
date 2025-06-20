@@ -133,7 +133,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
 
     try {
       const profileData = {
-        user_id: user.id,
+        id: user.id, // Changed from user_id to id
         age: parseInt(formData.age),
         gender: formData.gender,
         height: parseFloat(formData.height),
