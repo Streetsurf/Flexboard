@@ -78,7 +78,15 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user?.id || saving) return;
+    
+    console.log('Form submitted!'); // Debug log
+    console.log('User ID:', user?.id); // Debug log
+    console.log('Form data:', formData); // Debug log
+    
+    if (!user?.id || saving) {
+      console.log('Validation failed - user or saving state'); // Debug log
+      return;
+    }
 
     setSaving(true);
     setSaveError(null);
@@ -431,6 +439,10 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
               type="submit"
               disabled={saving || !isFormValid()}
               className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={(e) => {
+                console.log('Button clicked!'); // Debug log
+                // Don't prevent default here, let form handle it
+              }}
             >
               {saving ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
