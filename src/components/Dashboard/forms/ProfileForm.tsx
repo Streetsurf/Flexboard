@@ -102,7 +102,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
     fetchCurrentWeight();
   }, [user?.id]);
 
-  // Save profile function
+  // Save profile function - FIXED VERSION
   const saveProfile = async () => {
     if (!user?.id) {
       console.error('No user ID found');
@@ -133,7 +133,6 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
 
     try {
       const profileData = {
-        id: user.id, // Changed from user_id to id
         age: parseInt(formData.age),
         gender: formData.gender,
         height: parseFloat(formData.height),
@@ -146,23 +145,41 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
 
       console.log('Saving profile data to profiles table:', profileData);
 
-      // Use upsert to profiles table (not body_profiles)
+      // Use update instead of upsert to avoid conflicts
       const { data, error } = await supabase
         .from('profiles')
-        .upsert(profileData, { 
-          onConflict: 'id',
-          ignoreDuplicates: false 
-        })
+        .update(profileData)
         .eq('id', user.id)
         .select()
         .single();
 
       if (error) {
         console.error('Supabase error:', error);
-        throw error;
-      }
+        
+        // If profile doesn't exist, try to create it
+        if (error.code === 'PGRST116') {
+          console.log('Profile not found, creating new one...');
+          const { data: newData, error: insertError } = await supabase
+            .from('profiles')
+            .insert([{
+              id: user.id,
+              ...profileData
+            }])
+            .select()
+            .single();
 
-      console.log('Profile saved successfully:', data);
+          if (insertError) {
+            console.error('Insert error:', insertError);
+            throw insertError;
+          }
+          
+          console.log('Profile created successfully:', newData);
+        } else {
+          throw error;
+        }
+      } else {
+        console.log('Profile updated successfully:', data);
+      }
       
       // Mark that we have successfully submitted
       hasSubmittedRef.current = true;
