@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, Save, Settings, Target, Activity, Scale } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../../hooks/useAuth';
@@ -26,6 +26,11 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
   const [currentWeight, setCurrentWeight] = useState<number | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  
+  // Flag to prevent form reset after successful submit
+  const hasSubmittedRef = useRef(false);
+  const isFirstRenderRef = useRef(true);
+  
   const [formData, setFormData] = useState({
     age: '',
     gender: 'male' as const,
@@ -36,10 +41,24 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
     target_workouts_per_week: '3'
   });
 
-  // Load profile data into form when profile changes
+  // Load profile data into form ONLY on first render or when profile changes from null to data
   useEffect(() => {
-    console.log('Profile changed, updating form:', profile);
-    if (profile) {
+    console.log('Profile effect triggered:', { 
+      profile, 
+      hasSubmitted: hasSubmittedRef.current, 
+      isFirstRender: isFirstRenderRef.current 
+    });
+    
+    // Only update form data if:
+    // 1. It's the first render, OR
+    // 2. We haven't submitted yet, OR
+    // 3. Profile was null and now has data (initial load)
+    const shouldUpdateForm = isFirstRenderRef.current || 
+                            !hasSubmittedRef.current || 
+                            (profile && !formData.age && !formData.height);
+    
+    if (profile && shouldUpdateForm) {
+      console.log('Updating form data from profile:', profile);
       setFormData({
         age: profile.age ? profile.age.toString() : '',
         gender: profile.gender || 'male',
@@ -50,7 +69,12 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
         target_workouts_per_week: profile.target_workouts_per_week ? profile.target_workouts_per_week.toString() : '3'
       });
     }
-  }, [profile]);
+    
+    // Mark that first render is complete
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
+    }
+  }, [profile]); // Keep dependency but use flags to control when to update
 
   // Fetch current weight from latest weight entry
   useEffect(() => {
@@ -167,6 +191,9 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
       }
 
       console.log('Profile saved successfully:', data);
+      
+      // Mark that we have successfully submitted
+      hasSubmittedRef.current = true;
       
       // Show success message
       setSaveSuccess(true);
