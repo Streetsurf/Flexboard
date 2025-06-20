@@ -79,12 +79,9 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    console.log('=== FORM SUBMISSION DEBUG ===');
-    console.log('Form submitted!');
-    console.log('User object:', user);
-    console.log('User ID:', user?.id);
+    console.log('=== PROFILE SAVE DEBUG ===');
+    console.log('User:', user);
     console.log('Form data:', formData);
-    console.log('Saving state:', saving);
     
     if (!user?.id) {
       console.error('No user ID found!');
@@ -109,16 +106,6 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
     setSaveSuccess(false);
 
     try {
-      // First, check if profile exists
-      console.log('Checking if profile exists...');
-      const { data: existingProfile, error: checkError } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('id', user.id)
-        .single();
-
-      console.log('Existing profile check:', { existingProfile, checkError });
-
       const profileData = {
         id: user.id,
         age: parseInt(formData.age),
@@ -131,30 +118,17 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
         updated_at: new Date().toISOString()
       };
 
-      console.log('Profile data to save:', profileData);
+      console.log('Saving profile data:', profileData);
 
-      let result;
-      
-      if (existingProfile) {
-        // Update existing profile
-        console.log('Updating existing profile...');
-        result = await supabase
-          .from('profiles')
-          .update(profileData)
-          .eq('id', user.id)
-          .select()
-          .single();
-      } else {
-        // Insert new profile
-        console.log('Creating new profile...');
-        result = await supabase
-          .from('profiles')
-          .insert([profileData])
-          .select()
-          .single();
-      }
-
-      const { data, error } = result;
+      // Use upsert for better reliability
+      const { data, error } = await supabase
+        .from('profiles')
+        .upsert([profileData], { 
+          onConflict: 'id',
+          ignoreDuplicates: false 
+        })
+        .select()
+        .single();
 
       if (error) {
         console.error('Supabase error:', error);
@@ -163,14 +137,26 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
 
       console.log('Profile saved successfully:', data);
       
+      // Clear cache to force refresh
+      const cacheKey = `profile_${user.id}`;
+      localStorage.removeItem(cacheKey);
+      sessionStorage.removeItem(cacheKey);
+      
+      // Clear any cached data in the app
+      if (window.dataCache) {
+        window.dataCache.delete(cacheKey);
+      }
+      
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 5000);
       
-      // Call onSave callback to refresh parent component
-      if (onSave) {
-        console.log('Calling onSave callback...');
-        onSave();
-      }
+      // Force refresh parent component
+      setTimeout(() => {
+        if (onSave) {
+          console.log('Calling onSave callback...');
+          onSave();
+        }
+      }, 500);
 
     } catch (error: any) {
       console.error('Error saving profile:', error);
@@ -178,7 +164,32 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
       let errorMessage = 'Failed to save profile. Please try again.';
       
       if (error.message?.includes('duplicate key')) {
-        errorMessage = 'Profile already exists. Trying to update...';
+        errorMessage = 'Profile conflict. Retrying...';
+        // Retry with update
+        try {
+          const { error: updateError } = await supabase
+            .from('profiles')
+            .update({
+              age: parseInt(formData.age),
+              gender: formData.gender,
+              height: parseFloat(formData.height),
+              activity_level: formData.activity_level,
+              target_weight: parseFloat(formData.target_weight),
+              target_calories: formData.target_calories ? parseInt(formData.target_calories) : null,
+              target_workouts_per_week: parseInt(formData.target_workouts_per_week) || 3,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', user.id);
+            
+          if (!updateError) {
+            setSaveSuccess(true);
+            setTimeout(() => setSaveSuccess(false), 5000);
+            if (onSave) onSave();
+            return;
+          }
+        } catch (retryError) {
+          console.error('Retry failed:', retryError);
+        }
       } else if (error.message?.includes('permission')) {
         errorMessage = 'Permission denied. Please check your authentication.';
       } else if (error.message) {

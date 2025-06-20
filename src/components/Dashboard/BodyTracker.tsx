@@ -358,37 +358,35 @@ const BodyTracker: React.FC = () => {
     setConnectionError(errorMessage);
   }, []);
 
-  // Ultra-fast profile loading with persistence
+  // Ultra-fast profile loading with persistence - FIXED VERSION
   const loadProfile = useCallback(async () => {
     if (!user?.id) return;
     
-    // Try cache first for instant loading
-    const cacheKey = `profile_${user.id}`;
-    const cached = getCachedData(cacheKey);
-    if (cached) {
-      setProfile(cached);
-      setConnectionError(null);
-      return;
-    }
+    console.log('Loading profile for user:', user.id);
     
     try {
       setConnectionError(null);
       
-      const { data, error, fromCache } = await fastQuery('profiles', {
-        select: '*',
-        eq: { id: user.id }
-      });
+      // Direct query without cache for profile to ensure fresh data
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
 
-      if (error && error.code !== 'PGRST116') throw error;
+      console.log('Profile query result:', { data, error });
+
+      if (error && error.code !== 'PGRST116') {
+        throw error;
+      }
       
-      const profileData = data && data.length > 0 ? data[0] : null;
+      const profileData = data || null;
       setProfile(profileData);
       
-      // Cache for ultra-fast future access
-      if (!fromCache && profileData) {
-        setCachedData(cacheKey, profileData);
-      }
+      console.log('Profile loaded:', profileData);
+      
     } catch (error) {
+      console.error('Error loading profile:', error);
       handleError(error, 'load profile');
     }
   }, [user?.id, handleError]);
@@ -513,16 +511,21 @@ const BodyTracker: React.FC = () => {
     await loadAllData();
   }, [loadAllData, user?.id]);
 
-  // Refresh profile dengan cache update
+  // Refresh profile dengan cache update - FIXED VERSION
   const refreshProfile = useCallback(async () => {
     if (!user?.id) return;
     
-    // Clear cache untuk force refresh
+    console.log('Refreshing profile...');
+    
+    // Clear any cached profile data
     const cacheKey = `profile_${user.id}`;
     setCachedData(cacheKey, null);
     
+    // Force reload profile from database
     await loadProfile();
-    await loadAllData(); // Refresh semua data karena profile mempengaruhi kalkulasi
+    
+    // Also refresh other data since profile affects calculations
+    await loadAllData();
   }, [loadProfile, loadAllData, user?.id]);
 
   // Initial load with cache priority
