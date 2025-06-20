@@ -102,7 +102,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
     fetchCurrentWeight();
   }, [user?.id]);
 
-  // Save profile function - FIXED VERSION
+  // Save profile function with state refresh - FIXED VERSION
   const saveProfile = async () => {
     if (!user?.id) {
       console.error('No user ID found');
@@ -153,6 +153,8 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
         .select()
         .single();
 
+      let savedData = data;
+
       if (error) {
         console.error('Supabase error:', error);
         
@@ -174,6 +176,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
           }
           
           console.log('Profile created successfully:', newData);
+          savedData = newData;
         } else {
           throw error;
         }
@@ -188,11 +191,10 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 5000);
       
-      // Force refresh parent component after a short delay
-      setTimeout(() => {
-        console.log('Calling onSave callback...');
-        onSave();
-      }, 1000);
+      // CRITICAL: Refresh profile state by calling parent's onSave
+      // This will trigger a fresh fetch from database and update the profile prop
+      console.log('Calling onSave to refresh profile state...');
+      onSave();
 
     } catch (error: any) {
       console.error('Error saving profile:', error);
