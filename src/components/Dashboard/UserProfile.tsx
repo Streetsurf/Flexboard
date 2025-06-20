@@ -83,9 +83,14 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate }) => {
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const saveProfile = async () => {
+    if (!user?.id) {
+      console.error('No user ID found');
+      return;
+    }
+
     setSaving(true);
+    console.log('Saving profile with data:', editForm);
 
     try {
       const { data, error } = await supabase
@@ -96,25 +101,35 @@ const UserProfile: React.FC<UserProfileProps> = ({ onProfileUpdate }) => {
           avatar_url: editForm.avatar_url,
           updated_at: new Date().toISOString()
         })
-        .eq('id', user?.id)
+        .eq('id', user.id)
         .select()
         .single();
 
-      if (error) throw error;
-      
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+
+      console.log('Profile saved successfully:', data);
       setProfile(data);
       setIsEditing(false);
       
+      // Trigger profile update event
       window.dispatchEvent(new CustomEvent('profileUpdated'));
       
       if (onProfileUpdate) {
         onProfileUpdate();
       }
     } catch (error) {
-      console.error('Error updating profile:', error);
+      console.error('Error saving profile:', error);
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await saveProfile();
   };
 
   const handleCancel = () => {
