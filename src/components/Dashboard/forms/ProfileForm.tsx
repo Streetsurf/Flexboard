@@ -102,19 +102,18 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
     fetchCurrentWeight();
   }, [user?.id]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    console.log('=== PROFILE SAVE DEBUG ===');
-    console.log('User:', user);
-    console.log('Form data:', formData);
-    console.log('Current profile:', profile);
-    
+  // Save profile function
+  const saveProfile = async () => {
     if (!user?.id) {
-      console.error('No user ID found!');
+      console.error('No user ID found');
       setSaveError('User not authenticated. Please sign in again.');
       return;
     }
+
+    console.log('=== BODY TRACKER PROFILE SAVE DEBUG ===');
+    console.log('User:', user);
+    console.log('Form data:', formData);
+    console.log('Current profile:', profile);
 
     if (saving) {
       console.log('Already saving, skipping...');
@@ -134,7 +133,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
 
     try {
       const profileData = {
-        id: user.id,
+        user_id: user.id,
         age: parseInt(formData.age),
         gender: formData.gender,
         height: parseFloat(formData.height),
@@ -145,45 +144,18 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
         updated_at: new Date().toISOString()
       };
 
-      console.log('Saving profile data:', profileData);
+      console.log('Saving profile data to profiles table:', profileData);
 
-      // First try to update existing profile
-      const { data: existingProfile } = await supabase
+      // Use upsert to profiles table (not body_profiles)
+      const { data, error } = await supabase
         .from('profiles')
-        .select('id')
+        .upsert(profileData, { 
+          onConflict: 'id',
+          ignoreDuplicates: false 
+        })
         .eq('id', user.id)
+        .select()
         .single();
-
-      let result;
-      if (existingProfile) {
-        // Update existing profile
-        console.log('Updating existing profile...');
-        result = await supabase
-          .from('profiles')
-          .update({
-            age: profileData.age,
-            gender: profileData.gender,
-            height: profileData.height,
-            activity_level: profileData.activity_level,
-            target_weight: profileData.target_weight,
-            target_calories: profileData.target_calories,
-            target_workouts_per_week: profileData.target_workouts_per_week,
-            updated_at: profileData.updated_at
-          })
-          .eq('id', user.id)
-          .select()
-          .single();
-      } else {
-        // Insert new profile
-        console.log('Creating new profile...');
-        result = await supabase
-          .from('profiles')
-          .insert([profileData])
-          .select()
-          .single();
-      }
-
-      const { data, error } = result;
 
       if (error) {
         console.error('Supabase error:', error);
@@ -222,6 +194,11 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await saveProfile();
   };
 
   // BMR & TDEE Calculations using current weight - FIXED VERSION
