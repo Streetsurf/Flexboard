@@ -22,7 +22,10 @@ interface ProfileFormProps {
 const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [currentWeight, setCurrentWeight] = useState<number | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     age: '',
     gender: 'male' as const,
@@ -37,9 +40,9 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
     if (profile) {
       setFormData({
         age: profile.age ? profile.age.toString() : '',
-        gender: profile.gender,
+        gender: profile.gender || 'male',
         height: profile.height ? profile.height.toString() : '',
-        activity_level: profile.activity_level,
+        activity_level: profile.activity_level || 'moderately_active',
         target_weight: profile.target_weight ? profile.target_weight.toString() : '',
         target_calories: profile.target_calories ? profile.target_calories.toString() : '',
         target_workouts_per_week: profile.target_workouts_per_week ? profile.target_workouts_per_week.toString() : '3'
@@ -75,9 +78,12 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user?.id) return;
+    if (!user?.id || saving) return;
 
-    setLoading(true);
+    setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(false);
+
     try {
       const profileData = {
         id: user.id,
@@ -87,19 +93,41 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
         activity_level: formData.activity_level,
         target_weight: formData.target_weight ? parseFloat(formData.target_weight) : null,
         target_calories: formData.target_calories ? parseInt(formData.target_calories) : null,
-        target_workouts_per_week: parseInt(formData.target_workouts_per_week)
+        target_workouts_per_week: parseInt(formData.target_workouts_per_week) || 3,
+        updated_at: new Date().toISOString()
       };
 
-      const { error } = await supabase
-        .from('profiles')
-        .upsert([profileData]);
+      console.log('Saving profile data:', profileData);
 
-      if (error) throw error;
-      onSave();
-    } catch (error) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .upsert([profileData], { 
+          onConflict: 'id',
+          ignoreDuplicates: false 
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+
+      console.log('Profile saved successfully:', data);
+      
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+      
+      // Call onSave callback to refresh parent component
+      if (onSave) {
+        onSave();
+      }
+
+    } catch (error: any) {
       console.error('Error saving profile:', error);
+      setSaveError(error.message || 'Failed to save profile. Please try again.');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
@@ -149,6 +177,16 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
     extremely_active: 'Ekstrem Aktif (Olahraga sangat berat, 2x sehari)'
   };
 
+  // Validation
+  const isFormValid = () => {
+    return formData.age && 
+           formData.height && 
+           formData.target_weight && 
+           parseInt(formData.age) > 0 && 
+           parseFloat(formData.height) > 0 && 
+           parseFloat(formData.target_weight) > 0;
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -161,6 +199,19 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
             <h2 className="card-title">Profile & Target</h2>
           </div>
         </div>
+
+        {/* Success/Error Messages */}
+        {saveSuccess && (
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm">
+            ✅ Profile berhasil disimpan!
+          </div>
+        )}
+
+        {saveError && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+            ❌ {saveError}
+          </div>
+        )}
 
         {/* Current Weight Info */}
         {currentWeight && (
@@ -198,6 +249,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                   min="10"
                   max="120"
                   required
+                  disabled={saving}
                 />
               </div>
 
@@ -210,6 +262,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                   onChange={(e) => setFormData(prev => ({ ...prev, gender: e.target.value as any }))}
                   className="input"
                   required
+                  disabled={saving}
                 >
                   <option value="male">Laki-laki</option>
                   <option value="female">Perempuan</option>
@@ -229,6 +282,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                   min="50"
                   max="300"
                   required
+                  disabled={saving}
                 />
               </div>
             </div>
@@ -249,6 +303,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                 onChange={(e) => setFormData(prev => ({ ...prev, activity_level: e.target.value as any }))}
                 className="input"
                 required
+                disabled={saving}
               >
                 {Object.entries(activityLabels).map(([value, label]) => (
                   <option key={value} value={value}>{label}</option>
@@ -278,6 +333,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                   min="20"
                   max="300"
                   required
+                  disabled={saving}
                 />
                 {!currentWeight && (
                   <p className="text-xs text-gray-500 mt-1">
@@ -298,6 +354,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                   placeholder="2000"
                   min="800"
                   max="5000"
+                  disabled={saving}
                 />
               </div>
 
@@ -313,6 +370,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                   placeholder="3"
                   min="0"
                   max="14"
+                  disabled={saving}
                 />
               </div>
             </div>
@@ -359,11 +417,10 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
           )}
 
           {/* Validation Message */}
-          {(!formData.age || !formData.height || (!currentWeight && !formData.target_weight)) && (
+          {!isFormValid() && (
             <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
               <p className="text-sm text-yellow-800">
-                <strong>Untuk menghitung BMR & TDEE:</strong> Masukkan umur, tinggi badan, dan 
-                {!currentWeight ? ' target berat badan' : ' data sudah lengkap'}
+                <strong>Untuk menyimpan profile:</strong> Masukkan umur, tinggi badan, dan target berat badan
               </p>
             </div>
           )}
@@ -372,15 +429,15 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
           <div className="flex justify-end">
             <button
               type="submit"
-              disabled={loading}
-              className="btn-primary"
+              disabled={saving || !isFormValid()}
+              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? (
+              {saving ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
               ) : (
                 <Save className="w-4 h-4 mr-2" />
               )}
-              Simpan Profile
+              {saving ? 'Menyimpan...' : 'Simpan Profile'}
             </button>
           </div>
         </form>
