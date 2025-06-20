@@ -79,12 +79,28 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    console.log('Form submitted!'); // Debug log
-    console.log('User ID:', user?.id); // Debug log
-    console.log('Form data:', formData); // Debug log
+    console.log('=== FORM SUBMISSION DEBUG ===');
+    console.log('Form submitted!');
+    console.log('User object:', user);
+    console.log('User ID:', user?.id);
+    console.log('Form data:', formData);
+    console.log('Saving state:', saving);
     
-    if (!user?.id || saving) {
-      console.log('Validation failed - user or saving state'); // Debug log
+    if (!user?.id) {
+      console.error('No user ID found!');
+      setSaveError('User not authenticated. Please sign in again.');
+      return;
+    }
+
+    if (saving) {
+      console.log('Already saving, skipping...');
+      return;
+    }
+
+    // Validate required fields
+    if (!formData.age || !formData.height || !formData.target_weight) {
+      console.error('Missing required fields');
+      setSaveError('Please fill in all required fields (Age, Height, Target Weight)');
       return;
     }
 
@@ -93,28 +109,52 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
     setSaveSuccess(false);
 
     try {
+      // First, check if profile exists
+      console.log('Checking if profile exists...');
+      const { data: existingProfile, error: checkError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', user.id)
+        .single();
+
+      console.log('Existing profile check:', { existingProfile, checkError });
+
       const profileData = {
         id: user.id,
-        age: formData.age ? parseInt(formData.age) : null,
+        age: parseInt(formData.age),
         gender: formData.gender,
-        height: formData.height ? parseFloat(formData.height) : null,
+        height: parseFloat(formData.height),
         activity_level: formData.activity_level,
-        target_weight: formData.target_weight ? parseFloat(formData.target_weight) : null,
+        target_weight: parseFloat(formData.target_weight),
         target_calories: formData.target_calories ? parseInt(formData.target_calories) : null,
         target_workouts_per_week: parseInt(formData.target_workouts_per_week) || 3,
         updated_at: new Date().toISOString()
       };
 
-      console.log('Saving profile data:', profileData);
+      console.log('Profile data to save:', profileData);
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .upsert([profileData], { 
-          onConflict: 'id',
-          ignoreDuplicates: false 
-        })
-        .select()
-        .single();
+      let result;
+      
+      if (existingProfile) {
+        // Update existing profile
+        console.log('Updating existing profile...');
+        result = await supabase
+          .from('profiles')
+          .update(profileData)
+          .eq('id', user.id)
+          .select()
+          .single();
+      } else {
+        // Insert new profile
+        console.log('Creating new profile...');
+        result = await supabase
+          .from('profiles')
+          .insert([profileData])
+          .select()
+          .single();
+      }
+
+      const { data, error } = result;
 
       if (error) {
         console.error('Supabase error:', error);
@@ -124,16 +164,28 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
       console.log('Profile saved successfully:', data);
       
       setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
+      setTimeout(() => setSaveSuccess(false), 5000);
       
       // Call onSave callback to refresh parent component
       if (onSave) {
+        console.log('Calling onSave callback...');
         onSave();
       }
 
     } catch (error: any) {
       console.error('Error saving profile:', error);
-      setSaveError(error.message || 'Failed to save profile. Please try again.');
+      
+      let errorMessage = 'Failed to save profile. Please try again.';
+      
+      if (error.message?.includes('duplicate key')) {
+        errorMessage = 'Profile already exists. Trying to update...';
+      } else if (error.message?.includes('permission')) {
+        errorMessage = 'Permission denied. Please check your authentication.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setSaveError(errorMessage);
     } finally {
       setSaving(false);
     }
@@ -210,13 +262,13 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
 
         {/* Success/Error Messages */}
         {saveSuccess && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm">
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm animate-fadeIn">
             ✅ Profile berhasil disimpan!
           </div>
         )}
 
         {saveError && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm animate-fadeIn">
             ❌ {saveError}
           </div>
         )}
@@ -439,10 +491,6 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
               type="submit"
               disabled={saving || !isFormValid()}
               className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={(e) => {
-                console.log('Button clicked!'); // Debug log
-                // Don't prevent default here, let form handle it
-              }}
             >
               {saving ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
