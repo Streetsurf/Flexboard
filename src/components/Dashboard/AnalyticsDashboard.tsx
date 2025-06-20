@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, TrendingUp, Calendar, Clock, Target, Award, Activity, Zap, Download } from 'lucide-react';
+import { BarChart3, TrendingUp, Clock, Target, Award, Activity, Zap, Download } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
-import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay } from 'date-fns';
+import { format, subDays, startOfWeek, endOfWeek, endOfMonth, eachDayOfInterval, isSameDay } from 'date-fns';
 import {
   LineChart,
   Line,
