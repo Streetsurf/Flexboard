@@ -226,12 +226,12 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
     const height = parseFloat(formData.height);
     const weight = currentWeight || parseFloat(formData.target_weight);
     
-    // Pastikan semua nilai ada dan valid
+    // Ensure all values are valid numbers
     if (!age || age <= 0 || !height || height <= 0 || !weight || weight <= 0) {
       return 0;
     }
     
-    // Rumus Mifflin-St Jeor
+    // Mifflin-St Jeor Equation
     if (formData.gender === 'male') {
       return (10 * weight) + (6.25 * height) - (5 * age) + 5;
     } else {
@@ -253,7 +253,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
     return bmr * (activityMultipliers[formData.activity_level] || 1.55);
   };
 
-  // Hitung BMR dan TDEE secara real-time
+  // Calculate BMR and TDEE in real-time
   const bmr = calculateBMR();
   const tdee = calculateTDEE(bmr);
   const weightUsed = currentWeight || parseFloat(formData.target_weight) || 0;
