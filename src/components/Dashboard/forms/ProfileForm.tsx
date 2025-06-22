@@ -93,6 +93,7 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
         if (error && error.code !== 'PGRST116') throw error;
         if (data) {
           setCurrentWeight(data.weight);
+          console.log('Current weight loaded:', data.weight);
         }
       } catch (error) {
         console.error('Error fetching current weight:', error);
@@ -220,27 +221,66 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
     await saveProfile();
   };
 
-  // BMR & TDEE Calculations using current weight - FIXED VERSION
+  // BMR & TDEE Calculations - FIXED VERSION WITH DETAILED DEBUGGING
   const calculateBMR = (): number => {
-    const age = parseInt(formData.age);
-    const height = parseFloat(formData.height);
-    const weight = currentWeight || parseFloat(formData.target_weight);
+    console.log('=== BMR CALCULATION DEBUG ===');
+    console.log('Form data for BMR:', {
+      age: formData.age,
+      height: formData.height,
+      target_weight: formData.target_weight,
+      gender: formData.gender
+    });
+    console.log('Current weight:', currentWeight);
     
-    // Ensure all values are valid numbers
-    if (!age || age <= 0 || !height || height <= 0 || !weight || weight <= 0) {
+    // Parse values with detailed logging
+    const ageNum = formData.age ? parseInt(formData.age) : 0;
+    const heightNum = formData.height ? parseFloat(formData.height) : 0;
+    const weightNum = currentWeight || (formData.target_weight ? parseFloat(formData.target_weight) : 0);
+    
+    console.log('Parsed values:', {
+      age: ageNum,
+      height: heightNum,
+      weight: weightNum,
+      gender: formData.gender
+    });
+    
+    // Validate all values
+    if (!ageNum || ageNum <= 0) {
+      console.log('Invalid age:', ageNum);
+      return 0;
+    }
+    if (!heightNum || heightNum <= 0) {
+      console.log('Invalid height:', heightNum);
+      return 0;
+    }
+    if (!weightNum || weightNum <= 0) {
+      console.log('Invalid weight:', weightNum);
       return 0;
     }
     
-    // Mifflin-St Jeor Equation
+    // Calculate BMR using Mifflin-St Jeor Equation
+    let bmr = 0;
     if (formData.gender === 'male') {
-      return (10 * weight) + (6.25 * height) - (5 * age) + 5;
+      bmr = (10 * weightNum) + (6.25 * heightNum) - (5 * ageNum) + 5;
+      console.log('Male BMR calculation:', `(10 × ${weightNum}) + (6.25 × ${heightNum}) - (5 × ${ageNum}) + 5 = ${bmr}`);
     } else {
-      return (10 * weight) + (6.25 * height) - (5 * age) - 161;
+      bmr = (10 * weightNum) + (6.25 * heightNum) - (5 * ageNum) - 161;
+      console.log('Female BMR calculation:', `(10 × ${weightNum}) + (6.25 × ${heightNum}) - (5 × ${ageNum}) - 161 = ${bmr}`);
     }
+    
+    console.log('Final BMR:', bmr);
+    return bmr;
   };
 
   const calculateTDEE = (bmr: number): number => {
-    if (bmr <= 0) return 0;
+    console.log('=== TDEE CALCULATION DEBUG ===');
+    console.log('BMR input:', bmr);
+    console.log('Activity level:', formData.activity_level);
+    
+    if (bmr <= 0) {
+      console.log('BMR is 0 or negative, returning 0');
+      return 0;
+    }
     
     const activityMultipliers = {
       sedentary: 1.2,
@@ -250,13 +290,21 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
       extremely_active: 1.9
     };
     
-    return bmr * (activityMultipliers[formData.activity_level] || 1.55);
+    const multiplier = activityMultipliers[formData.activity_level] || 1.55;
+    const tdee = bmr * multiplier;
+    
+    console.log('TDEE calculation:', `${bmr} × ${multiplier} = ${tdee}`);
+    console.log('Final TDEE:', tdee);
+    
+    return tdee;
   };
 
-  // Calculate BMR and TDEE in real-time
+  // Calculate BMR and TDEE in real-time with debugging
   const bmr = calculateBMR();
   const tdee = calculateTDEE(bmr);
-  const weightUsed = currentWeight || parseFloat(formData.target_weight) || 0;
+  const weightUsed = currentWeight || (formData.target_weight ? parseFloat(formData.target_weight) : 0);
+
+  console.log('Real-time calculations:', { bmr, tdee, weightUsed });
 
   const activityLabels = {
     sedentary: 'Tidak Aktif (Tidak olahraga)',
@@ -332,7 +380,10 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                 <input
                   type="number"
                   value={formData.age}
-                  onChange={(e) => setFormData(prev => ({ ...prev, age: e.target.value }))}
+                  onChange={(e) => {
+                    console.log('Age changed to:', e.target.value);
+                    setFormData(prev => ({ ...prev, age: e.target.value }));
+                  }}
                   className="input"
                   placeholder="25"
                   min="10"
@@ -348,7 +399,10 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                 </label>
                 <select
                   value={formData.gender}
-                  onChange={(e) => setFormData(prev => ({ ...prev, gender: e.target.value as any }))}
+                  onChange={(e) => {
+                    console.log('Gender changed to:', e.target.value);
+                    setFormData(prev => ({ ...prev, gender: e.target.value as any }));
+                  }}
                   className="input"
                   required
                   disabled={saving}
@@ -365,7 +419,10 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                 <input
                   type="number"
                   value={formData.height}
-                  onChange={(e) => setFormData(prev => ({ ...prev, height: e.target.value }))}
+                  onChange={(e) => {
+                    console.log('Height changed to:', e.target.value);
+                    setFormData(prev => ({ ...prev, height: e.target.value }));
+                  }}
                   className="input"
                   placeholder="170"
                   min="50"
@@ -389,7 +446,10 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
               </label>
               <select
                 value={formData.activity_level}
-                onChange={(e) => setFormData(prev => ({ ...prev, activity_level: e.target.value as any }))}
+                onChange={(e) => {
+                  console.log('Activity level changed to:', e.target.value);
+                  setFormData(prev => ({ ...prev, activity_level: e.target.value as any }));
+                }}
                 className="input"
                 required
                 disabled={saving}
@@ -416,7 +476,10 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
                   type="number"
                   step="0.1"
                   value={formData.target_weight}
-                  onChange={(e) => setFormData(prev => ({ ...prev, target_weight: e.target.value }))}
+                  onChange={(e) => {
+                    console.log('Target weight changed to:', e.target.value);
+                    setFormData(prev => ({ ...prev, target_weight: e.target.value }));
+                  }}
                   className="input"
                   placeholder="65"
                   min="20"
@@ -465,45 +528,58 @@ const ProfileForm: React.FC<ProfileFormProps> = ({ profile, onSave }) => {
             </div>
           </div>
 
-          {/* Calculations Preview - FIXED VERSION */}
-          {(formData.age && formData.height && (currentWeight || formData.target_weight)) && (
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
-              <h4 className="font-medium text-blue-900 mb-3">Kalkulasi Metabolisme</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-3">
-                <div>
-                  <span className="text-blue-700">BMR (Basal Metabolic Rate):</span>
-                  <span className="font-medium text-blue-900 ml-2">
-                    {bmr > 0 ? `${Math.round(bmr)} kalori/hari` : 'Masukkan data lengkap'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-blue-700">TDEE (Total Daily Energy Expenditure):</span>
-                  <span className="font-medium text-blue-900 ml-2">
-                    {tdee > 0 ? `${Math.round(tdee)} kalori/hari` : 'Masukkan data lengkap'}
-                  </span>
-                </div>
-              </div>
-              <div className="p-3 bg-white border border-blue-200 rounded-lg">
-                <p className="text-xs text-blue-600 mb-1">
-                  <strong>Berdasarkan berat badan:</strong> {weightUsed} kg 
-                  {currentWeight ? ' (berat saat ini)' : ' (target berat)'}
-                </p>
-                <p className="text-xs text-blue-600">
-                  TDEE adalah perkiraan kalori yang kamu bakar per hari berdasarkan aktivitas. 
-                  Untuk menurunkan berat badan, konsumsi kalori di bawah TDEE.
-                </p>
-                {bmr > 0 && (
-                  <div className="mt-2 text-xs text-blue-700">
-                    <strong>Rumus BMR:</strong> {formData.gender === 'male' ? 'Laki-laki' : 'Perempuan'} = 
-                    {formData.gender === 'male' 
-                      ? ` (10 × ${weightUsed}) + (6.25 × ${formData.height}) - (5 × ${formData.age}) + 5`
-                      : ` (10 × ${weightUsed}) + (6.25 × ${formData.height}) - (5 × ${formData.age}) - 161`
-                    }
-                  </div>
-                )}
+          {/* Calculations Preview - ENHANCED WITH DEBUGGING */}
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+            <h4 className="font-medium text-blue-900 mb-3">Kalkulasi Metabolisme</h4>
+            
+            {/* Debug Info */}
+            <div className="mb-4 p-3 bg-white border border-blue-200 rounded-lg text-xs">
+              <h5 className="font-medium text-blue-900 mb-2">Debug Info:</h5>
+              <div className="grid grid-cols-2 gap-2 text-blue-700">
+                <div>Age: {formData.age || 'Not set'}</div>
+                <div>Height: {formData.height || 'Not set'} cm</div>
+                <div>Weight: {weightUsed || 'Not set'} kg</div>
+                <div>Gender: {formData.gender}</div>
+                <div>Activity: {formData.activity_level}</div>
+                <div>BMR: {bmr > 0 ? Math.round(bmr) : 'Invalid data'}</div>
+                <div>TDEE: {tdee > 0 ? Math.round(tdee) : 'Invalid data'}</div>
               </div>
             </div>
-          )}
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-3">
+              <div>
+                <span className="text-blue-700">BMR (Basal Metabolic Rate):</span>
+                <span className="font-medium text-blue-900 ml-2">
+                  {bmr > 0 ? `${Math.round(bmr)} kalori/hari` : 'Masukkan data lengkap'}
+                </span>
+              </div>
+              <div>
+                <span className="text-blue-700">TDEE (Total Daily Energy Expenditure):</span>
+                <span className="font-medium text-blue-900 ml-2">
+                  {tdee > 0 ? `${Math.round(tdee)} kalori/hari` : 'Masukkan data lengkap'}
+                </span>
+              </div>
+            </div>
+            <div className="p-3 bg-white border border-blue-200 rounded-lg">
+              <p className="text-xs text-blue-600 mb-1">
+                <strong>Berdasarkan berat badan:</strong> {weightUsed} kg 
+                {currentWeight ? ' (berat saat ini)' : ' (target berat)'}
+              </p>
+              <p className="text-xs text-blue-600">
+                TDEE adalah perkiraan kalori yang kamu bakar per hari berdasarkan aktivitas. 
+                Untuk menurunkan berat badan, konsumsi kalori di bawah TDEE.
+              </p>
+              {bmr > 0 && (
+                <div className="mt-2 text-xs text-blue-700">
+                  <strong>Rumus BMR:</strong> {formData.gender === 'male' ? 'Laki-laki' : 'Perempuan'} = 
+                  {formData.gender === 'male' 
+                    ? ` (10 × ${weightUsed}) + (6.25 × ${formData.height}) - (5 × ${formData.age}) + 5`
+                    : ` (10 × ${weightUsed}) + (6.25 × ${formData.height}) - (5 × ${formData.age}) - 161`
+                  }
+                </div>
+              )}
+            </div>
+          </div>
 
           {/* Validation Message */}
           {!isFormValid() && (
